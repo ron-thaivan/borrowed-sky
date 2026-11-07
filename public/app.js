@@ -2,6 +2,7 @@ import './motion.js';
 import {themes,getPalette} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeGif} from './gif.js';
+import {updateBenchmarks,benchmarkRequest} from './benchmarks.js';
 import {resetNetwork} from './network.js';
 const $=id=>document.getElementById(id);
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
@@ -95,6 +96,7 @@ function draw(s){
  $('pause').disabled=pausePending;
  $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
  drawDashboard(s,session.id);
+ updateBenchmarks(s,session,api);
  thumbnails();
  $('theme-options').disabled=savingTheme||!isHost||!!s.started&&!s.finished;
  for(const input of document.querySelectorAll('input[name="theme"]'))input.checked=input.value===(s.selectedTheme||'sunny');
@@ -161,7 +163,7 @@ async function poll(){
 }
 async function tick(){await poll();setTimeout(tick,900);}
 $('create').onclick=()=>enter('create');$('join').onclick=()=>enter('join');
-$('start').onclick=async()=>{try{const currentSession=session;const s=await api('start');if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}catch(e){say(e.message);}};
+$('start').onclick=async()=>{try{const currentSession=session;const s=await api('start',benchmarkRequest());if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}catch(e){say(e.message);}};
 async function setPaused(value){
  if(!session||pausePending)return;
  const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;
