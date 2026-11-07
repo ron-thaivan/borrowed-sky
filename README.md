@@ -35,6 +35,8 @@ Each assignment has a unique lease token and render-run ID. Disconnected jobs an
 
 ## Honest performance measurements
 
+The landing page eases scroll effects with refresh-synchronized transforms and stops updating when settled, offscreen, hidden, or inside a rendering room. Completed animation previews cache decoded pixel images and use elapsed-time playback synchronized to the display. The source animation and downloaded GIF remain 20 fps; these UI optimizations do not change the distributed workload or imply a rendering speedup.
+
 **Wall time** runs from server render start until the last accepted upload. **Worker CPU time** is the sum of accepted worker render durations measured with `performance.now()`; it includes OS scheduling, excludes rejected/repeated computation, and is not actual CPU utilization. **Frame payload** counts raw accepted indexed pixels, excluding the roughly 33% base64 expansion, HTTP/polling overhead, rejected uploads, and final frame download. Browser GIF assembly happens after render wall time and is not included.
 
 Compare one-laptop and three-laptop wall times using the same scene, machines, power settings, and network; repeat several runs. Do not label summed worker time divided by wall time as speedup. Small jobs, slow devices, background-tab throttling, coordination, and uploads can make the shared run slower. This MVP uses one worker per laptop and a fixed 192×128, 120-frame scene. GIF encoding favors simplicity over compression (~3.2 MB output).

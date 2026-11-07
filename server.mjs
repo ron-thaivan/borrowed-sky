@@ -74,10 +74,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000}={}) {
         }
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(result));
       } else {
-        const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
         const file=files[url.pathname]; if(!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
-        res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html','Cache-Control':'no-cache'});res.end(data);
+        res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
       }
     } catch(e) {res.writeHead(e.status||400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
   });
