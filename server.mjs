@@ -3,89 +3,168 @@ import {readFile} from 'node:fs/promises';
 import {randomBytes, randomUUID} from 'node:crypto';
 import {networkInterfaces} from 'node:os';
 import {pathToFileURL} from 'node:url';
+import {validateConfig, frameRequestLimit, HARD_MAX_REQUEST_BYTES, REQUEST_METADATA_BYTES} from './public/config.js';
 
-export function createCoordinator({disconnectMs=7000, leaseMs=30000}={}) {
-  const rooms=new Map();
-  const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-  function sweep(room) {
-    const now=Date.now();
-    for(const d of room.devices.values()) d.online=now-d.seen<disconnectMs;
-    for(const f of room.frames) if(f.state==='working' && (!room.devices.get(f.device)?.online || now>f.expires)) {
-      f.state='queued'; f.device=null; f.token=null; room.recovered++;
+const fail = (message, status=400) => Object.assign(new Error(message), {status});
+
+// Count bytes, not UTF-16 characters. Drain rejected streams without buffering them.
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    const declared = req.headers['content-length'];
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) {
+      req.resume(); reject(fail('Request too large', 413)); return;
     }
+    let size = 0, chunks = [], rejected = false;
+    req.on('data', chunk => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > limit) {
+        rejected = true; chunks = []; reject(fail('Request too large', 413));
+      } else chunks.push(chunk);
+    });
+    req.on('end', () => { if (!rejected) resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', reject);
+    req.on('aborted', () => reject(fail('Request aborted')));
+  });
+}
+
+export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, maxRequestBytes=HARD_MAX_REQUEST_BYTES, now=Date.now}={}) {
+  const renderingConfig = validateConfig(config);
+  const uploadLimit = frameRequestLimit(renderingConfig);
+  if (!Number.isInteger(maxRequestBytes) || maxRequestBytes < uploadLimit || maxRequestBytes > HARD_MAX_REQUEST_BYTES) {
+    throw new Error('Request limit must accommodate configured frames and stay within 8 MiB');
+  }
+  if (!(disconnectMs > 0) || !(leaseMs > 0)) throw new Error('Timeouts must be positive');
+  const rooms = new Map();
+  const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name || 'Guest laptop').slice(0,40),
+    seen:now(), online:true, paused:false, completed:0, computeMs:0, uploadBytes:0});
+  function sweep(room) {
+    const time = now();
+    for (const d of room.devices.values()) d.online = time - d.seen < disconnectMs;
+    for (const f of room.frames) if (f.state === 'working' && (!room.devices.get(f.device)?.online || time >= f.expires)) {
+      f.state = 'queued'; f.device = null; f.token = null; room.recovered++;
+    }
+  }
+  function assignment(room, device, proof) {
+    if (!proof || !Number.isInteger(proof.index) || proof.run !== room.run || typeof proof.token !== 'string') return null;
+    const frame = room.frames[proof.index];
+    return frame?.state === 'working' && frame.device === device.id && frame.token === proof.token && now() < frame.expires ? frame : null;
   }
   function snapshot(r) {
     sweep(r);
-    return {code:r.code,host:r.host,run:r.run,started:r.started,finished:r.finished,recovered:r.recovered,
-      config:r.config,devices:[...r.devices.values()].map(({id,name,online,computeMs,completed})=>({id,name,online,computeMs,completed})),
-      frames:r.frames.map(({index,state,device})=>({index,state,device})),completed:r.frames.filter(f=>f.state==='done').length,
-      computeMs:r.frames.reduce((n,f)=>n+(f.ms||0),0),uploadBytes:r.frames.reduce((n,f)=>n+(f.data?.length||0),0)};
+    return {code:r.code, host:r.host, run:r.run, revision:++r.revision, started:r.started, finished:r.finished,
+      recovered:r.recovered, config:r.config,
+      devices:[...r.devices.values()].map(d => {
+        const active = r.frames.find(f => f.state === 'working' && f.device === d.id);
+        return {id:d.id, name:d.name, online:d.online, paused:d.paused,
+          status:!d.online ? 'Disconnected' : active ? 'Rendering' : d.paused ? 'Paused' : 'Idle',
+          assignedFrame:active?.index ?? null, completed:d.completed, computeMs:d.computeMs,
+          renderTimeMs:d.computeMs, uploadBytes:d.uploadBytes,
+          averageFrameMs:d.completed ? d.computeMs/d.completed : null,
+          contributionPercent:r.config.count ? d.completed/r.config.count*100 : 0};
+      }),
+      frames:r.frames.map(({index,state,device}) => ({index,state,device})),
+      completed:r.frames.filter(f => f.state === 'done').length,
+      computeMs:r.frames.reduce((n,f) => n+(f.ms||0), 0),
+      uploadBytes:r.frames.reduce((n,f) => n+(f.data?.length||0), 0)};
   }
-  const server=http.createServer(async(req,res)=>{
+  const server = http.createServer(async (req,res) => {
     try {
-      const url=new URL(req.url,'http://localhost');
-      if(url.pathname.startsWith('/api/')) {
-        if(req.method!=='POST') throw fail('Use POST',405);
-        let body=''; for await(const chunk of req) { body+=chunk; if(body.length>100000) throw fail('Request too large',413); }
-        const b=JSON.parse(body||'{}'); let result;
-        if(url.pathname==='/api/create') {
-          if(rooms.size>=100) throw fail('Server is full. Restart it to clear old rooms.',503);
-          let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while(rooms.has(code));
-          const id=randomUUID(); const r={code,host:id,devices:new Map(),frames:[],run:null,started:null,finished:null,recovered:0,config:{width:192,height:128,count:120,fps:20}};
-          r.devices.set(id,{id,secret:randomUUID(),name:String(b.name||'Host laptop').slice(0,40),seen:Date.now(),online:true,completed:0,computeMs:0}); rooms.set(code,r); result={id,secret:r.devices.get(id).secret,...snapshot(r)};
+      const url = new URL(req.url, 'http://localhost');
+      if (url.pathname.startsWith('/api/')) {
+        if (req.method !== 'POST') throw fail('Use POST',405);
+        const limit = url.pathname === '/api/result' ? Math.min(uploadLimit,maxRequestBytes) : REQUEST_METADATA_BYTES;
+        const b = JSON.parse(await readBody(req,limit) || '{}');
+        if (!b || typeof b !== 'object' || Array.isArray(b)) throw fail('Expected a JSON object');
+        let result;
+        if (url.pathname === '/api/create') {
+          if (rooms.size >= 100) throw fail('Server is full. Restart it to clear old rooms.',503);
+          let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while (rooms.has(code));
+          const id = randomUUID();
+          const r = {code,host:id,devices:new Map(),frames:[],run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
+          r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
+          result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
         } else {
-          const r=rooms.get(String(b.code).toUpperCase()); if(!r) throw fail('Room not found. Check the six-character code.',404);
-          if(url.pathname==='/api/join') {
-            if(r.devices.size>=32) throw fail('Room is full');
-            const id=randomUUID(); r.devices.set(id,{id,secret:randomUUID(),name:String(b.name||'Guest laptop').slice(0,40),seen:Date.now(),online:true,completed:0,computeMs:0}); result={id,secret:r.devices.get(id).secret,...snapshot(r)};
+          const r = rooms.get(String(b.code).toUpperCase());
+          if (!r) throw fail('Room not found. Check the six-character code.',404);
+          if (url.pathname === '/api/join') {
+            if (r.devices.size >= 32) throw fail('Room is full');
+            const id = randomUUID(); r.devices.set(id,newDevice(id,b.name));
+            result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
           } else {
-            const d=r.devices.get(b.id); if(!d||d.secret!==b.secret) throw fail('Join this room first.',403);
-            sweep(r); d.seen=Date.now(); d.online=true;
-            switch(url.pathname) {
-              case '/api/state': result=snapshot(r); break;
+            const d = r.devices.get(b.id);
+            if (!d || d.secret !== b.secret) throw fail('Join this room first.',403);
+            // Sweep BEFORE refreshing presence or renewing: expired leases cannot be revived.
+            sweep(r); d.seen=now(); d.online=true;
+            switch (url.pathname) {
+              case '/api/state': {
+                if (b.paused !== undefined && typeof b.paused !== 'boolean') throw fail('Invalid pause state');
+                // A delayed heartbeat from an old run must not pause a new run.
+                if (b.run === r.run && typeof b.paused === 'boolean') d.paused=b.paused;
+                let leaseRenewed = false;
+                if (b.assignment !== undefined) {
+                  const frame = assignment(r,d,b.assignment);
+                  if (frame) {frame.expires=now()+leaseMs; leaseRenewed=true;}
+                }
+                result = {...snapshot(r),leaseRenewed}; break;
+              }
               case '/api/start':
-                if(b.id!==r.host) throw fail('Only the host can start a render.',403);
-                if(r.started&&!r.finished) throw fail('A render is already running.');
-                r.run=randomUUID(); r.started=Date.now(); r.finished=null; r.recovered=0;
-                for(const device of r.devices.values()) {device.completed=0; device.computeMs=0;}
-                r.frames=Array.from({length:r.config.count},(_,index)=>({index,state:'queued'})); result=snapshot(r); break;
+                if (b.id !== r.host) throw fail('Only the host can start a render.',403);
+                if (r.started !== null && r.finished === null) throw fail('A render is already running.');
+                r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;
+                for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;}
+                r.frames=Array.from({length:r.config.count},(_,index) => ({index,state:'queued'}));
+                result=snapshot(r); break;
               case '/api/claim': {
-                let f=r.frames.find(f=>f.state==='working'&&f.device===b.id);
-                if(!f) { f=r.frames.find(f=>f.state==='queued'); if(f) Object.assign(f,{state:'working',device:b.id,token:randomUUID(),expires:Date.now()+leaseMs}); }
-                result={job:f?{index:f.index,token:f.token,run:r.run,...r.config}:null}; break;
+                if (b.run != null && b.run !== r.run) throw fail('Render run changed.',409);
+                let f=r.frames.find(f => f.state === 'working' && f.device === b.id);
+                if (!f && !d.paused) {
+                  f=r.frames.find(f => f.state === 'queued');
+                  if (f) Object.assign(f,{state:'working',device:b.id,token:randomUUID(),expires:now()+leaseMs});
+                }
+                result={job:f ? {index:f.index,token:f.token,run:r.run,...r.config} : null}; break;
               }
               case '/api/result': {
-                const f=r.frames[b.index];
-                if(b.run!==r.run||!f||f.state!=='working'||f.device!==b.id||f.token!==b.token) throw fail('Lease expired; frame was reassigned.',409);
-                if(typeof b.pixels!=='string'||!Number.isFinite(b.ms)||b.ms<0||b.ms>leaseMs) throw fail('Invalid frame');
-                const data=Buffer.from(b.pixels,'base64'); if(data.length!==r.config.width*r.config.height) throw fail('Invalid frame size');
-                Object.assign(f,{state:'done',data,ms:b.ms}); d.completed++; d.computeMs+=b.ms;
-                if(r.frames.every(f=>f.state==='done')) r.finished=Date.now(); result={ok:true}; break;
+                const f=assignment(r,d,b);
+                if (!f) throw fail('Lease expired; frame was reassigned.',409);
+                const pixelCount=r.config.width*r.config.height;
+                if (typeof b.pixels !== 'string' || b.pixels.length !== 4*Math.ceil(pixelCount/3) ||
+                    !/^[A-Za-z0-9+/]*={0,2}$/.test(b.pixels) || !Number.isFinite(b.ms) || b.ms < 0 || b.ms > Number.MAX_SAFE_INTEGER) throw fail('Invalid frame');
+                const data=Buffer.from(b.pixels,'base64');
+                if (data.length !== pixelCount || data.toString('base64') !== b.pixels) throw fail('Invalid frame size or encoding');
+                Object.assign(f,{state:'done',data,ms:b.ms}); d.completed++; d.computeMs+=b.ms; d.uploadBytes+=data.length;
+                if (r.frames.every(f => f.state === 'done')) r.finished=now();
+                result={ok:true}; break;
               }
               case '/api/frames':
-                if(b.id!==r.host) throw fail('Only the host can collect frames.',403);
-                if(!r.finished) throw fail('Render is not complete.');
-                result={config:r.config,run:r.run,frames:r.frames.map(f=>f.data.toString('base64'))}; break;
+                if (b.id !== r.host) throw fail('Only the host can collect frames.',403);
+                if (r.finished === null) throw fail('Render is not complete.');
+                result={config:r.config,run:r.run,frames:r.frames.map(f => f.data.toString('base64'))}; break;
               case '/api/leave':
-                d.seen=0; sweep(r); result={ok:true}; break;
+                d.seen=-Infinity; sweep(r); result={ok:true}; break;
               default: throw fail('Not found',404);
             }
           }
         }
-        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(result));
+        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));
       } else {
-        const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
-        const file=files[url.pathname]; if(!file) throw fail('Not found',404);
+        const files={'/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
       }
-    } catch(e) {res.writeHead(e.status||400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
+    } catch (e) {
+      res.writeHead(e.status||400,{'Content-Type':'application/json',...(e.status===413?{'Connection':'close'}:{})});
+      res.end(JSON.stringify({error:e.message}));
+    }
   });
   return server;
 }
-if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
- const port=Number(process.env.PORT||3000); createCoordinator().listen(port,'0.0.0.0',()=>{
- console.log(`Borrowed Sky: http://localhost:${port}`);
- for(const entries of Object.values(networkInterfaces())) for(const a of entries||[]) if(a.family==='IPv4'&&!a.internal) console.log(`Same Wi-Fi: http://${a.address}:${port}`);
- });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port=Number(process.env.PORT||3000);
+  const config=JSON.parse(process.env.RENDER_CONFIG||'{}');
+  createCoordinator({config}).listen(port,'0.0.0.0',() => {
+    console.log(`Borrowed Sky: http://localhost:${port}`);
+    for (const entries of Object.values(networkInterfaces())) for (const a of entries||[]) if (a.family==='IPv4'&&!a.internal) console.log(`Same Wi-Fi: http://${a.address}:${port}`);
+  });
 }
