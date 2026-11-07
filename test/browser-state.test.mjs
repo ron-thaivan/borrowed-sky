@@ -12,7 +12,7 @@ async function browser() {
   getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,
-  drawDashboard(){},dashboardConnection(){},Worker:class {postMessage(){} terminate(){}},
+  drawDashboard(){},dashboardConnection(){},resetNetwork(){},Worker:class {postMessage(){} terminate(){}},
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
   window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null},

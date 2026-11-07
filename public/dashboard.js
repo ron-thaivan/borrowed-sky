@@ -1,3 +1,4 @@
+import {drawNetwork,networkConnection} from './network.js';
 const $=id=>document.getElementById(id);
 $('live-dashboard').innerHTML=`
  <div class="dashboard-heading"><div><p class="eyebrow">MANY LAPTOPS. ONE SHARED SKY.</p><h3 id="dashboard-title">Live Contributor Dashboard</h3><p id="dashboard-run">Ready for the first frame</p></div><span id="dashboard-live" class="live-indicator" data-connected="true" role="status">Live · updates automatically</span></div>
@@ -36,12 +37,14 @@ function syncRows(body,cache,ids){
  ids.forEach((id,i)=>{const row=cache.get(id);if(body.children[i]!==row)body.insertBefore(row,body.children[i]||null);});
 }
 export function dashboardConnection(connected){
+ networkConnection(connected);
  const el=$('dashboard-live');
  put(el,connected?'Live · updates automatically':hasSnapshot?'Connection lost · showing last snapshot':'Waiting for server connection');
  el.dataset.connected=String(connected);
 }
 export function drawDashboard(s,self){
  const d=s.dashboard;if(!d)return;
+ drawNetwork(s,self);
  hasSnapshot=true;
  dashboardConnection(true);
  put($('dash-connected'),d.connected);put($('dash-completed'),d.completed);

@@ -50,6 +50,18 @@ exercise shared configuration and host-only permissions. Physical multi-device
 and different-browser-engine comparisons remain a separate venue check.
 
 
+## Live distributed computing network
+
+The room includes an interactive navy/cyan network map above the contributor dashboard. The center represents the Node.js coordinator; each laptop, including the host, has its own selectable node. Click or keyboard-select a node to inspect its current assignment and contribution. Disconnected devices remain visible in red. Paused devices are distinct from idle devices.
+
+Blue signals represent real assignments, green signals represent accepted frame uploads, and amber return signals represent unfinished work requeued by the coordinator (not a successful upload). Frame numbers appear with transfers; completed frame cells briefly highlight. New joins and reconnects have a short appearance animation. The five totals show connected, rendering, idle, completed, and recovered assignments; repeated recoveries of one frame count separately, matching the existing recovery metric.
+
+The existing room poll carries a bounded journal of the latest 128 server events with monotonic sequence IDs. This captures assignments and uploads that both occur between polls. Repeated claims, heartbeats, and rejected uploads never generate transfer events. The view deduplicates events, ignores stale snapshots and previous runs, and treats initial load as a baseline rather than replaying old work. A history gap is disclosed instead of reconstructing missing transfers. No credentials or lease tokens appear in the journal.
+
+Animations are delayed representations of observed activity, not live packet tracing. At most 48 recent transfer effects are shown at once during bursts; accurate totals still include all accepted work. There is no continuous particle loop: animation frames run only while signals are moving, and effects stop when hidden, offscreen, disconnected from the coordinator, or reduced motion is requested. Large fleets and narrow screens can scroll the map. This adds no dependencies, background worker, or extra polling requests.
+
+Verification includes server-event tests, browser-controller tests for deduplication and bounded animation, and two real browser sessions on one physical machine: 120 frames completed, a departing guest retained 42 accepted frames, one unfinished frame was recovered, and the host displayed the finished GIF download. Physical multi-laptop behavior remains unverified for this feature.
+
 ## Live Contributor Dashboard
 
 The room now includes a navy-and-cyan dashboard with live totals, a contributor

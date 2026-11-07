@@ -38,12 +38,22 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
   }
   if (!(disconnectMs > 0) || !(leaseMs > 0)) throw new Error('Timeouts must be positive');
   const rooms = new Map();
+  // Bounded, public activity records: never expose device secrets or lease tokens.
+  function activity(room,type,device,details={}) {
+    room.events.push({sequence:++room.eventSequence,run:room.run,at:now(),type,device,...details});
+    if(room.events.length>128)room.events.splice(0,room.events.length-128);
+  }
   const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name||'').trim().slice(0,40)||'Device '+id.slice(0,6),
     seen:now(), online:true, paused:false, completed:0, computeMs:0, uploadBytes:0});
   function sweep(room,time=now()) {
     room.recentCompletions=room.recentCompletions.filter(e=>e.at>time-RATE_WINDOW_MS);
-    for (const d of room.devices.values()) d.online = time - d.seen < disconnectMs;
+    for (const d of room.devices.values()) {
+      const online=time-d.seen<disconnectMs;
+      if(d.online&&!online)activity(room,'disconnected',d.id);
+      d.online=online;
+    }
     for (const f of room.frames) if (f.state === 'working' && (!room.devices.get(f.device)?.online || time >= f.expires)) {
+      activity(room,'recovered',f.device,{index:f.index,reason:room.devices.get(f.device)?.online?'lease expired':'device disconnected'});
       f.state = 'queued'; f.device = null; f.token = null; room.recovered++;
     }
   }
@@ -56,6 +66,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
     const sampledAt=now();sweep(r,sampledAt);
     return {code:r.code, host:r.host, run:r.run, revision:++r.revision, started:r.started, finished:r.finished,
       recovered:r.recovered, config:r.config,
+      network:{sequence:r.eventSequence,firstSequence:r.events[0]?.sequence??r.eventSequence+1,events:r.events},
       selectedTheme:r.selectedTheme,...contributorSnapshot(r,sampledAt),
       frames:r.frames.map(({index,state,device}) => ({index,state,device})),
       completed:r.frames.filter(f => f.state === 'done').length,
@@ -75,8 +86,9 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           if (rooms.size >= 100) throw fail('Server is full. Restart it to clear old rooms.',503);
           let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while (rooms.has(code));
           const id = randomUUID();
-          const r = {code,host:id,devices:new Map(),frames:[],recentCompletions:[],selectedTheme:renderingConfig.theme,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
+          const r = {code,host:id,devices:new Map(),frames:[],events:[],eventSequence:0,recentCompletions:[],selectedTheme:renderingConfig.theme,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
           r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
+          activity(r,'joined',id);
           result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
         } else {
           const r = rooms.get(String(b.code).toUpperCase());
@@ -84,12 +96,13 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           if (url.pathname === '/api/join') {
             if (r.devices.size >= 32) throw fail('Room is full');
             const id = randomUUID(); r.devices.set(id,newDevice(id,b.name));
+            activity(r,'joined',id);
             result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
           } else {
             const d = r.devices.get(b.id);
             if (!d || d.secret !== b.secret) throw fail('Join this room first.',403);
             // Sweep BEFORE refreshing presence or renewing: expired leases cannot be revived.
-            sweep(r); d.seen=now(); d.online=true;
+            sweep(r);if(!d.online)activity(r,'reconnected',d.id);d.seen=now(); d.online=true;
             switch (url.pathname) {
               case '/api/state': {
                 if (b.paused !== undefined && typeof b.paused !== 'boolean') throw fail('Invalid pause state');
@@ -124,7 +137,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 let f=r.frames.find(f => f.state === 'working' && f.device === b.id);
                 if (!f && !d.paused) {
                   f=r.frames.find(f => f.state === 'queued');
-                  if (f) Object.assign(f,{state:'working',device:b.id,token:randomUUID(),expires:now()+leaseMs});
+                  if (f) {
+                    Object.assign(f,{state:'working',device:b.id,token:randomUUID(),expires:now()+leaseMs,attempts:(f.attempts||0)+1});
+                    activity(r,'assigned',d.id,{index:f.index,reassigned:f.attempts>1});
+                  }
                 }
                 result={job:f ? {index:f.index,token:f.token,run:r.run,...r.config} : null}; break;
               }
@@ -137,6 +153,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 const data=Buffer.from(b.pixels,'base64');
                 if (data.length !== pixelCount || data.toString('base64') !== b.pixels) throw fail('Invalid frame size or encoding');
                 Object.assign(f,{state:'done',data,ms:b.ms}); d.completed++; d.computeMs+=b.ms; d.uploadBytes+=data.length;
+                activity(r,'completed',d.id,{index:f.index});
                 r.recentCompletions.push({device:d.id,at:now()});
                 if (r.frames.every(f => f.state === 'done')) r.finished=now();
                 result={ok:true}; break;
@@ -153,7 +170,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         }
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));
       } else {
-        const files={'/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        const files={'/network.js':'network.js','/network-state.js':'network-state.js','/network.css':'network.css','/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
