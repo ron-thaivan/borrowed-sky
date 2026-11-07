@@ -1,10 +1,53 @@
 import './motion.js';
-import {palette} from './renderer.js';
+import {themes,getPalette} from './renderer.js';
+import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeGif} from './gif.js';
 const $=id=>document.getElementById(id);
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
 let activeJob=null,polling=false,pollAgain=false;
 const ctx=$('preview').getContext('2d');
+let savingTheme=false,thumbnailsStarted=false;
+let pausePending=false;
+const thumbnailImages=new Map();
+function showSelectedThumbnail(){
+ if(!state||state.started!==null)return;
+ const canvas=thumbnailImages.get(state.selectedTheme||'sunny');
+ if(canvas){ctx.imageSmoothingEnabled=false;ctx.drawImage(canvas,0,0,state.config.width,state.config.height);$('preview-label').textContent='PROCEDURAL THEME PREVIEW';}
+}
+for(const theme of themes){
+ const label=document.createElement('label');label.className='theme-card';
+ const input=document.createElement('input');input.type='radio';input.name='theme';input.value=theme.id;input.checked=theme.id==='sunny';
+ const canvas=document.createElement('canvas');canvas.width=64;canvas.height=40;canvas.setAttribute('aria-hidden','true');canvas.dataset.theme=theme.id;
+ const title=document.createElement('strong');title.textContent=theme.name;
+ const description=document.createElement('span');description.textContent=theme.description;
+ label.append(input,canvas,title,description);$('theme-grid').append(label);
+ input.onchange=async()=>{
+  savingTheme=true;$('theme-options').disabled=true;$('start').disabled=true;
+  try{const id=session.id;const s=await api('configure',{theme:theme.id});if(session?.id!==id)return;draw(s);say(theme.name+' selected for the next render.');}
+  catch(e){say(e.message);}
+  finally{savingTheme=false;if(state)draw(state);}
+ };
+}
+function thumbnails(){
+ if(thumbnailsStarted)return;thumbnailsStarted=true;
+ // Generate small genuine procedural previews off the UI thread.
+ const w=new Worker('/worker.js',{type:'module'});let i=0;
+ const send=()=>w.postMessage({width:64,height:40,index:0,count:120,theme:themes[i].id});
+ w.onmessage=({data})=>{
+  if(data.error){w.terminate();return;}
+  const canvas=document.querySelector('canvas[data-theme="'+themes[i].id+'"]'),c=canvas.getContext('2d');
+  c.putImageData(makeImage(c,data.pixels,{width:64,height:40,theme:themes[i].id}),0,0);
+  thumbnailImages.set(themes[i].id,canvas);showSelectedThumbnail();
+  if(++i<themes.length)send();else w.terminate();
+ };
+ w.onerror=()=>w.terminate();send();
+}
+function makeImage(context,pixels,config){
+ const image=context.createImageData(config.width,config.height),palette=getPalette(config.theme);
+ for(let i=0,j=0;i<pixels.length;i++,j+=4){const c=palette[pixels[i]];image.data[j]=c[0];image.data[j+1]=c[1];image.data[j+2]=c[2];image.data[j+3]=255;}
+ return image;
+}
+
 const say=text=>$('message').textContent=text;
 async function api(action,body={}) {
  const res=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...session,...body}),signal:AbortSignal.timeout(10000)});
@@ -13,24 +56,24 @@ async function api(action,body={}) {
 let frameImages=new WeakMap();
 function configurePreview(config){
  const canvas=$('preview');
- if(canvas.width!==config.width||canvas.height!==config.height){canvas.width=config.width;canvas.height=config.height;frameImages=new WeakMap();}
+ if(canvas.width!==config.width||canvas.height!==config.height||state?.config.theme!==config.theme){canvas.width=config.width;canvas.height=config.height;frameImages=new WeakMap();}
  canvas.parentElement.style.aspectRatio=`${config.width} / ${config.height}`;
  $('resolution').textContent=`${config.width} × ${config.height} / ${config.fps} FPS`;
  $('duration').textContent=`${(config.count/config.fps).toFixed(1)} seconds. One shared sky.`;
  $('progress').max=config.count;
 }
-function imageFor(pixels){
+function imageFor(pixels,config=state.config){
  let image=frameImages.get(pixels);if(image)return image;
  if(pixels.length!==$('preview').width*$('preview').height)throw new Error('Unexpected preview frame dimensions');
- image=ctx.createImageData($('preview').width,$('preview').height);const rgba=image.data;
- for(let i=0,j=0;i<pixels.length;i++,j+=4){const c=palette[pixels[i]];rgba[j]=c[0];rgba[j+1]=c[1];rgba[j+2]=c[2];rgba[j+3]=255;}
+ image=makeImage(ctx,pixels,config);
  frameImages.set(pixels,image);return image;
 }
-function showFrame(pixels){ctx.putImageData(imageFor(pixels),0,0);}
+function showFrame(pixels,config=state.config){ctx.putImageData(imageFor(pixels,config),0,0);}
 function stopAnimation(){cancelAnimationFrame(animation);animation=null;}
-function playFrames(frames,fps){
+function playFrames(frames,config){
+ const {fps}=config;
  stopAnimation();let start=null,last=-1;
- const paint=time=>{if(start===null)start=time;const index=Math.floor((time-start)*fps/1000)%frames.length;if(index!==last){showFrame(frames[index]);last=index;}animation=requestAnimationFrame(paint);};
+ const paint=time=>{if(start===null)start=time;const index=Math.floor((time-start)*fps/1000)%frames.length;if(index!==last){showFrame(frames[index],config);last=index;}animation=requestAnimationFrame(paint);};
  animation=requestAnimationFrame(paint);
 }
 function base64(pixels){let s='';for(let i=0;i<pixels.length;i++)s+=String.fromCharCode(pixels[i]);return btoa(s);}
@@ -45,8 +88,20 @@ function draw(s){
   if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}
  }
  configurePreview(s.config);
+ if(state?.run!==s.run){ctx.clearRect(0,0,s.config.width,s.config.height);$('preview-label').textContent='WAITING FOR FIRST FRAME';}
  state=s;const isHost=session.id===s.host;
- $('room-code').textContent=s.code;$('start').hidden=!isHost;$('start').disabled=!!s.started&&!s.finished;
+ const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=!!me.paused;
+ $('pause').disabled=pausePending;
+ $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
+ drawDashboard(s,session.id);
+ thumbnails();
+ $('theme-options').disabled=savingTheme||!isHost||!!s.started&&!s.finished;
+ for(const input of document.querySelectorAll('input[name="theme"]'))input.checked=input.value===(s.selectedTheme||'sunny');
+ $('theme-status').textContent=savingTheme?'SAVING':s.started&&!s.finished?'LOCKED DURING RENDER':isHost?'YOUR CHOICE':'HOST SELECTS';
+ $('render-title').textContent=themes.find(t=>t.id===((s.started?s.config.theme:s.selectedTheme)||'sunny')).name+' loop';
+ showSelectedThumbnail();
+
+ $('room-code').textContent=s.code;$('start').hidden=!isHost;$('start').disabled=savingTheme||s.started!==null&&s.finished===null;
  $('start').textContent=s.finished?'Render again ↗':'Start rendering ↗';
  $('role-note').textContent=isHost?'You are hosting. Share the invite, then start. Your laptop contributes too.':'You are contributing. The host starts the render and downloads the finished animation.';
  $('phase').textContent=s.finished?'COMPLETE':s.started?'RENDERING':'READY';
@@ -58,16 +113,14 @@ function draw(s){
  const grid=$('frame-grid');
  if(grid.children.length!==s.config.count)grid.replaceChildren(...Array.from({length:s.config.count},()=>document.createElement('div')));
  for(let i=0;i<s.config.count;i++){const status=s.frames[i]?.state||'queued';const el=grid.children[i];if(el.dataset.state!==status){el.dataset.state=status;el.className='frame '+status;el.title=`Frame ${i+1}: ${status}`;}}
- $('device-count').textContent=s.devices.filter(d=>d.online).length+' ONLINE';
- $('devices').replaceChildren(...s.devices.map(d=>{const row=document.createElement('tr');const jobs=s.frames.filter(f=>f.state==='working'&&f.device===d.id);const values=[d.name+(d.id===session.id?' (you)':'')+(d.id===s.host?' · host':''),d.status+(d.status==='Rendering'&&d.paused?' (pausing)':''),jobs.map(f=>String(f.index+1).padStart(3,'0')).join(', ')||'—',`${d.completed} (${d.contributionPercent.toFixed(1)}%)`,(d.renderTimeMs/1000).toFixed(2)+'s',d.averageFrameMs===null?'—':(d.averageFrameMs/1000).toFixed(2)+'s'];for(const [i,value]of values.entries()){const td=document.createElement('td');td.textContent=value;if(i===1)td.className=d.online?'online':'offline';row.append(td);}return row;}));
  if(s.finished&&isHost&&assembledRun!==s.run&&!assembling) assemble(s.run);
 }
 async function assemble(run){
  assembling=true;const gen=generation;
  try {say('Collecting frames and assembling GIF…');const data=await api('frames');if(!session||state.run!==run||gen!==generation)return;
  const frames=data.frames.map(decode);const gif=encodeGif(frames,data.config);
- if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').hidden=false;assembledRun=run;
- playFrames(frames,data.config.fps);$('preview-label').textContent='FINISHED / LOOPING';say(`Animation ready — ${(gif.length/1024/1024).toFixed(1)} MB GIF. Payload metric excludes base64 and protocol overhead.`);
+ if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;
+ playFrames(frames,data.config);$('preview-label').textContent='FINISHED / LOOPING';say(`Animation ready — ${(gif.length/1024/1024).toFixed(1)} MB GIF. Payload metric excludes base64 and protocol overhead.`);
  }catch(e){say('Assembly failed: '+e.message);}finally{assembling=false;}
 }
 async function contribute(){
@@ -78,10 +131,10 @@ async function contribute(){
  worker=new Worker('/worker.js',{type:'module'});
  worker.onmessage=async({data})=>{
   if(gen!==generation)return;worker?.terminate();worker=null;
-  try{if(data.error)throw new Error(data.error);showFrame(data.pixels);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
+  try{if(data.error)throw new Error(data.error);showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
   catch(e){if(e.status!==409)say(e.message);}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
  };
- worker.onerror=e=>{say('Worker failed: '+e.message);resetWorker();paused=true;$('pause').textContent='Resume contribution';};worker.postMessage(job);
+ worker.onerror=e=>{if(gen!==generation)return;resetWorker();void setPaused(true).then(()=>say('Worker failed: '+e.message));};worker.postMessage(job);
  }catch(e){if(gen===generation){busy=false;say(e.message);}}
 }
 async function enter(action){
@@ -94,7 +147,7 @@ async function poll(){
  if(polling){pollAgain=true;return;}
  polling=true;const currentSession=session,job=activeJob;
  try{
-  const payload={run:state?.run??null,paused};
+  const payload={run:state?.run??null};
   if(job)payload.assignment={index:job.index,run:job.run,token:job.token};
   const s=await api('state',payload);
   if(session!==currentSession)return;
@@ -102,16 +155,27 @@ async function poll(){
   // Do not terminate a newer job if this heartbeat described a previous one.
   if(job&&activeJob===job&&!s.leaseRenewed)resetWorker();
   $('connection').textContent='Connected';contribute();
- }catch(e){if(session===currentSession){$('connection').textContent='Reconnecting…';say(e.message);}}
+ }catch(e){if(session===currentSession){$('connection').textContent='Reconnecting…';dashboardConnection(false);say(e.message);}}
  finally{polling=false;if(pollAgain){pollAgain=false;void poll();}}
 }
 async function tick(){await poll();setTimeout(tick,900);}
 $('create').onclick=()=>enter('create');$('join').onclick=()=>enter('join');
 $('start').onclick=async()=>{try{const currentSession=session;const s=await api('start');if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}catch(e){say(e.message);}};
-$('pause').onclick=()=>{paused=!paused;updatePauseButton();say(paused?'Pausing after the current frame. This laptop stays connected.':'Contribution resumed.');void poll();};
+async function setPaused(value){
+ if(!session||pausePending)return;
+ const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;
+ try{
+  const s=await api('pause',{paused:value,run});if(session?.id!==id)return;
+  pausePending=false;draw(s);
+  say(value?'Pausing after the current frame. This laptop stays connected.':'Contribution resumed.');
+ }catch(e){if(session?.id===id){if(state?.run===run)paused=previous;say('Could not update pause state: '+e.message);}}
+ finally{pausePending=false;$('pause').disabled=false;if(session?.id===id)contribute();}
+}
+$('pause').onclick=()=>setPaused(!paused);
 $('leave').onclick=async()=>{const old=session;resetWorker();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}say('You left the room. Unfinished work is available to other devices.');};
 $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',session.code);if(['localhost','127.0.0.1'].includes(location.hostname)){say(`Room ${session.code}. On other laptops, open the server’s Wi-Fi address printed in its terminal, then enter this code.`);return;}try{await navigator.clipboard.writeText(link.href);say('Invite link copied.');}catch{say('Share this invite: '+link.href);}};
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
 try{session=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(session){$('lobby').hidden=true;$('room').hidden=false;}}catch{session=null;}
 tick();
+

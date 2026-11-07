@@ -1,3 +1,5 @@
+import {isTheme} from './public/renderer.js';
+import {contributorSnapshot,RATE_WINDOW_MS} from './lib/dashboard.mjs';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {randomBytes, randomUUID} from 'node:crypto';
@@ -36,10 +38,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
   }
   if (!(disconnectMs > 0) || !(leaseMs > 0)) throw new Error('Timeouts must be positive');
   const rooms = new Map();
-  const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name || 'Guest laptop').slice(0,40),
+  const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name||'').trim().slice(0,40)||'Device '+id.slice(0,6),
     seen:now(), online:true, paused:false, completed:0, computeMs:0, uploadBytes:0});
-  function sweep(room) {
-    const time = now();
+  function sweep(room,time=now()) {
+    room.recentCompletions=room.recentCompletions.filter(e=>e.at>time-RATE_WINDOW_MS);
     for (const d of room.devices.values()) d.online = time - d.seen < disconnectMs;
     for (const f of room.frames) if (f.state === 'working' && (!room.devices.get(f.device)?.online || time >= f.expires)) {
       f.state = 'queued'; f.device = null; f.token = null; room.recovered++;
@@ -51,18 +53,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
     return frame?.state === 'working' && frame.device === device.id && frame.token === proof.token && now() < frame.expires ? frame : null;
   }
   function snapshot(r) {
-    sweep(r);
+    const sampledAt=now();sweep(r,sampledAt);
     return {code:r.code, host:r.host, run:r.run, revision:++r.revision, started:r.started, finished:r.finished,
       recovered:r.recovered, config:r.config,
-      devices:[...r.devices.values()].map(d => {
-        const active = r.frames.find(f => f.state === 'working' && f.device === d.id);
-        return {id:d.id, name:d.name, online:d.online, paused:d.paused,
-          status:!d.online ? 'Disconnected' : active ? 'Rendering' : d.paused ? 'Paused' : 'Idle',
-          assignedFrame:active?.index ?? null, completed:d.completed, computeMs:d.computeMs,
-          renderTimeMs:d.computeMs, uploadBytes:d.uploadBytes,
-          averageFrameMs:d.completed ? d.computeMs/d.completed : null,
-          contributionPercent:r.config.count ? d.completed/r.config.count*100 : 0};
-      }),
+      selectedTheme:r.selectedTheme,...contributorSnapshot(r,sampledAt),
       frames:r.frames.map(({index,state,device}) => ({index,state,device})),
       completed:r.frames.filter(f => f.state === 'done').length,
       computeMs:r.frames.reduce((n,f) => n+(f.ms||0), 0),
@@ -81,7 +75,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           if (rooms.size >= 100) throw fail('Server is full. Restart it to clear old rooms.',503);
           let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while (rooms.has(code));
           const id = randomUUID();
-          const r = {code,host:id,devices:new Map(),frames:[],run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
+          const r = {code,host:id,devices:new Map(),frames:[],recentCompletions:[],selectedTheme:renderingConfig.theme,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
           r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
           result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
         } else {
@@ -108,9 +102,19 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 }
                 result = {...snapshot(r),leaseRenewed}; break;
               }
+              case '/api/pause':
+                if(typeof b.paused!=='boolean') throw fail('paused must be a boolean');
+                if(b.run!==undefined&&b.run!==r.run) throw fail('Render run changed.',409);
+                d.paused=b.paused;result=snapshot(r);break;
+              case '/api/configure':
+                if(b.id!==r.host) throw fail('Only the host can choose a theme.',403);
+                if(r.started!==null&&r.finished===null) throw fail('Wait for the active render to finish.',409);
+                if(!isTheme(b.theme)) throw fail('Unknown cloud theme');
+                r.selectedTheme=b.theme;result=snapshot(r);break;
               case '/api/start':
                 if (b.id !== r.host) throw fail('Only the host can start a render.',403);
                 if (r.started !== null && r.finished === null) throw fail('A render is already running.');
+                r.config={...r.config,theme:r.selectedTheme};r.recentCompletions=[];
                 r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;
                 for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;}
                 r.frames=Array.from({length:r.config.count},(_,index) => ({index,state:'queued'}));
@@ -133,6 +137,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 const data=Buffer.from(b.pixels,'base64');
                 if (data.length !== pixelCount || data.toString('base64') !== b.pixels) throw fail('Invalid frame size or encoding');
                 Object.assign(f,{state:'done',data,ms:b.ms}); d.completed++; d.computeMs+=b.ms; d.uploadBytes+=data.length;
+                r.recentCompletions.push({device:d.id,at:now()});
                 if (r.frames.every(f => f.state === 'done')) r.finished=now();
                 result={ok:true}; break;
               }
@@ -148,7 +153,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         }
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));
       } else {
-        const files={'/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        const files={'/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
@@ -168,3 +173,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const entries of Object.values(networkInterfaces())) for (const a of entries||[]) if (a.family==='IPv4'&&!a.internal) console.log(`Same Wi-Fi: http://${a.address}:${port}`);
   });
 }
+

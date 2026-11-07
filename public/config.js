@@ -1,4 +1,5 @@
-export const DEFAULT_CONFIG = Object.freeze({width:192, height:128, count:120, fps:20});
+import {isTheme} from './renderer.js';
+export const DEFAULT_CONFIG = Object.freeze({width:192, height:128, count:120, fps:20, theme:'sunny'});
 export const HARD_MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 export const REQUEST_METADATA_BYTES = 16 * 1024;
 
@@ -12,9 +13,11 @@ export function validateConfig(input = {}) {
       config.width * config.height * config.count > 128 * 1024 * 1024) {
     throw new Error('Rendering configuration exceeds supported limits');
   }
+  if(!isTheme(config.theme))throw new Error('Unknown cloud theme');
   return Object.freeze(config);
 }
 
 export function frameRequestLimit(config) {
   return 4 * Math.ceil(config.width * config.height / 3) + REQUEST_METADATA_BYTES;
 }
+

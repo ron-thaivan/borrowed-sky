@@ -97,13 +97,14 @@ test('configured larger frames upload and collect; malformed and oversized bodie
  assert.equal(chunkedStatus,413);
  assert.equal((await call('result',{...h,...job,pixels,ms:40})).status,200);
  const frames=await call('frames',h);
- assert.deepEqual(frames.config,{width:320,height:240,count:1,fps:25});assert.equal(frames.frames[0],pixels);
+ assert.deepEqual(frames.config,{width:320,height:240,count:1,fps:25,theme:'sunny'});assert.equal(frames.frames[0],pixels);
 });
 
 test('configuration bounds preserve defaults and enforce a hard request ceiling',()=>{
- assert.deepEqual(validateConfig(),{width:192,height:128,count:120,fps:20});
+ assert.deepEqual(validateConfig(),{width:192,height:128,count:120,fps:20,theme:'sunny'});
  for(const config of [{width:0},{height:1.5},{count:601},{fps:101},{width:2049},{width:2048,height:2048,count:120}])assert.throws(()=>createCoordinator({config}));
  assert.throws(()=>createCoordinator({maxRequestBytes:HARD_MAX_REQUEST_BYTES+1}));
  assert.throws(()=>createCoordinator({maxRequestBytes:100}));
  assert.ok(frameRequestLimit(validateConfig({width:2048,height:2048,count:1}))<HARD_MAX_REQUEST_BYTES);
 });
+

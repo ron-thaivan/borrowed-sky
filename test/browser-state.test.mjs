@@ -2,16 +2,17 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-import {palette} from '../public/renderer.js';
+import {palette,themes,getPalette} from '../public/renderer.js';
 
 // Exercise the actual browser controller with a minimal DOM; no browser dependency.
 async function browser() {
  const elements=new Map();
- const context2d={createImageData:(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}),putImageData:()=>{}};
+ const context2d={createImageData:(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}),putImageData:()=>{},clearRect(){},drawImage(){}};
  const element=()=>({children:[],dataset:{},style:{},parentElement:{style:{}},value:'',width:192,height:128,
-  getContext:()=>context2d,replaceChildren(...children){this.children=children;},append(child){this.children.push(child);}});
+  getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
- const context=vm.createContext({document:{getElementById:get,createElement:element},palette,
+ const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,
+  drawDashboard(){},dashboardConnection(){},Worker:class {postMessage(){} terminate(){}},
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
   window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null},
@@ -53,3 +54,32 @@ test('new run clears local pause and stale snapshots cannot restore an old run',
  draw(snapshot(config,{revision:2}));
  assert.equal(run('state.run'),'second');
 });
+
+test('themed preview keeps configured dimensions and changes palette on a new run',async()=>{
+ const {draw,run}=await browser();
+ const config={width:320,height:240,count:12,fps:12,theme:'sunset'};
+ draw(snapshot(config));
+ let image=run('imageFor(new Uint8Array(320*240).fill(150))');
+ assert.deepEqual([...image.data.slice(0,3)],getPalette('sunset')[150]);
+ draw(snapshot({...config,theme:'night'},{run:'second',revision:2}));
+ image=run('imageFor(new Uint8Array(320*240).fill(150))');
+ assert.deepEqual([...image.data.slice(0,3)],getPalette('night')[150]);
+});
+
+test('heartbeat retains active lease proof without overwriting server-backed pause state',async()=>{
+ const {draw,run,context}=await browser();
+ const config={width:8,height:8,count:2,fps:20,theme:'sunny'};
+ draw(snapshot(config,{started:1000}));
+ run("activeJob={index:0,run:'first',token:'lease'};busy=true;paused=true");
+ let payload;
+ context.fetch=async(url,options)=>{
+  payload=JSON.parse(options.body);
+  return {ok:true,json:async()=>snapshot(config,{started:1000,revision:2,leaseRenewed:true})};
+ };
+ await run('poll()');
+ assert.deepEqual(payload.assignment,{index:0,run:'first',token:'lease'});
+ assert.ok(!Object.hasOwn(payload,'paused'));
+ assert.equal(run('activeJob.token'),'lease');
+ assert.equal(run('busy'),true);
+});
+

@@ -1,0 +1,44 @@
+.live-dashboard{--dash-muted:#a4b5ce;--dash-line:#243754;background:#0b1425;color:#eaf3ff;border:1px solid #283d5d;border-radius:22px;padding:28px;margin-bottom:28px;box-shadow:0 18px 50px #07152518;font-family:Arial,Helvetica,sans-serif}
+.dashboard-heading{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}
+.dashboard-heading .eyebrow{color:#6ce2ed;margin:0 0 10px;font-size:10px;letter-spacing:2px}
+.dashboard-heading h3{font-size:clamp(24px,3vw,34px);font-weight:600;letter-spacing:-1px}
+.dashboard-heading p{color:var(--dash-muted);margin:10px 0 0;font-size:13px}
+.live-indicator{display:inline-flex;align-items:center;gap:9px;border:1px solid #285369;border-radius:30px;padding:10px 13px;color:#8deaf1;font-size:11px;white-space:normal}
+.live-indicator:before{content:'';width:7px;height:7px;border-radius:50%;background:#57dce9;flex-shrink:0}
+.live-indicator[data-connected=false]{color:#ffd49a;border-color:#785f39}
+.live-indicator[data-connected=false]:before{background:#ffc46a}
+.dashboard-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.dashboard-stat{padding:19px 16px;background:linear-gradient(145deg,#15253c,#101e33);border:1px solid var(--dash-line);border-radius:14px;min-width:0}
+.dashboard-stat span{display:block;color:var(--dash-muted);font-size:11px;margin-bottom:14px}
+.dashboard-stat strong{font-size:clamp(25px,3vw,38px);font-weight:600;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.dashboard-stat small{display:block;font-size:10px;color:var(--dash-muted);margin-top:9px}
+.dashboard-stat.accent strong{color:#6de6f2}
+.dashboard-progress{margin:20px 0 25px}
+.dashboard-progress>div{display:flex;justify-content:space-between;gap:15px;color:var(--dash-muted);font-size:11px;margin-bottom:12px;flex-wrap:wrap}
+.live-dashboard progress{height:7px;border-radius:6px;overflow:hidden}
+.live-dashboard progress::-webkit-progress-bar{background:#1c2e49}
+.live-dashboard progress::-webkit-progress-value{background:linear-gradient(90deg,#498eff,#68e4ed)}
+.live-dashboard progress::-moz-progress-bar{background:#68e4ed}
+.dashboard-section{background:#101c30;border:1px solid var(--dash-line);border-radius:16px;overflow:hidden;margin-top:16px}
+.dashboard-section-heading{padding:20px 20px 12px}
+.dashboard-section h4{font-size:16px;letter-spacing:-.3px;margin:0 0 8px;color:#f2f7ff}
+.dashboard-section p,.dashboard-methods p{font-size:11px;line-height:1.65;color:var(--dash-muted);margin:0}
+.live-dashboard .table-wrap{overflow:auto;max-height:390px;scrollbar-color:#426389 #122038}
+.live-dashboard table{width:100%;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.live-dashboard th{position:sticky;top:0;background:#15243a;color:#adc1df;font-size:10px;padding:14px 16px;font-weight:500;z-index:1;text-transform:uppercase;letter-spacing:.5px}
+.live-dashboard td{padding:15px 16px;border-top:1px solid #23334e;color:#d6e4f7}
+.live-dashboard td:first-child{font-weight:600;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.live-dashboard tr.is-leader td{background:#123245}
+.live-dashboard tr.is-leader td:first-child{box-shadow:inset 3px 0 #68e4ed}
+.live-dashboard tr.is-offline td{color:#9aacc6}
+.live-dashboard td[data-status=rendering],.live-dashboard td[data-online=true]{color:#6de6f2}
+.live-dashboard td[data-status=paused]{color:#ffcf89}
+.live-dashboard td[data-status=idle]{color:#b1c2df}
+.dashboard-bottom{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:16px}
+.dashboard-methods{margin-top:16px;padding:24px;border:1px solid var(--dash-line);border-radius:16px;background:#101c30}
+.dashboard-methods h4{font-size:14px;margin:0 0 15px}
+.dashboard-methods p+p{margin-top:12px}
+.dashboard-methods strong{color:#cfdeef}
+.dashboard-table-hint{display:none}
+@media(max-width:1100px){.dashboard-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-bottom{grid-template-columns:1fr}.dashboard-table-hint{display:block!important;margin-top:8px!important}}
+@media(max-width:600px){.live-dashboard{padding:16px;border-radius:16px}.dashboard-heading{flex-direction:column;align-items:flex-start}.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.dashboard-stat{padding:15px 12px}.dashboard-section-heading{padding:16px}.dashboard-heading h3{font-size:26px}.live-dashboard td,.live-dashboard th{padding:13px}.dashboard-progress>div{line-height:1.5}}

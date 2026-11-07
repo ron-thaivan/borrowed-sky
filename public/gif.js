@@ -1,9 +1,10 @@
-import {palette} from './renderer.js';
+import {getPalette} from './renderer.js';
 // GIF89a with a global palette and deliberately simple, valid fixed-width LZW.
 // Clear before the dictionary reaches 512 entries; favors portability over size.
-export function encodeGif(frames,{width,height,fps}) {
+export function encodeGif(frames,{width,height,fps,theme='sunny'}) {
  if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>65535||height>65535||!Number.isFinite(fps)||fps<1||fps>100)throw new Error('Invalid GIF configuration');
  if(!frames.length||frames.some(frame=>!(frame instanceof Uint8Array)||frame.length!==width*height))throw new Error('Invalid GIF frame dimensions');
+ const palette=getPalette(theme);
  const bytes=[]; const put=(...a)=>bytes.push(...a),word=n=>put(n&255,n>>8),text=s=>{for(const c of s)put(c.charCodeAt(0));};
  text('GIF89a');word(width);word(height);put(247,0,0);for(const rgb of palette)put(...rgb);
  put(33,255,11);text('NETSCAPE2.0');put(3,1,0,0,0);
@@ -14,3 +15,4 @@ export function encodeGif(frames,{width,height,fps}) {
   for(let i=0;i<data.length;i+=255){const block=data.slice(i,i+255);put(block.length,...block);}put(0);
  }put(59);return new Uint8Array(bytes);
 }
+
