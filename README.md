@@ -52,6 +52,18 @@ and different-browser-engine comparisons remain a separate venue check.
 
 ## Live distributed computing network
 
+### Simulate Worker Failure
+
+During a render, the host can click **Simulate Worker Failure** above the network map, select a connected contributor, and click **Fail selected worker**. The list excludes the host and shows each contributor's current status/frame. Select a Rendering worker for the clearest demonstration; if its upload wins the race before the failure request, the notification accurately reports no unfinished work rather than inventing a recovery.
+
+The coordinator marks the selected device unavailable and runs the existing recovery sweep immediately. Its real outstanding lease is invalidated, its unfinished frame returns to the queue, and the normal claim route gives that frame a new token. The network shows a red **SIMULATED FAILURE** node and real recovery/reassignment signals. The dashboard and notification distinguish this from a physical disconnect, and accepted contributions retain their credit.
+
+The affected browser keeps authenticated polling so it can explain the demonstration and detect restoration, but those requests cannot restore availability, renew the revoked lease, claim new work, or upload the old result. The local Web Worker stops when its browser receives the failed state. Server-side protection takes effect immediately, including before that next poll.
+
+Use **Reset simulation: [device]** to restore availability and repeat the demonstration. Existing pause preferences remain respected; a physically absent device stays disconnected until it contacts the coordinator. Starting a new run also clears simulated failures. Both failure and reset requests require host authentication and the current run ID; neither can target the host. Normal heartbeat expiry, graceful leave, lease expiry, and stale-result rejection remain in place. Reset is available after completion. Runs containing recovered frames remain excluded from benchmark speedup comparisons.
+
+Automated tests cover repeated failures/resets, host protection, authorization, stale runs/results, continued heartbeats from blocked workers, idle-device failure, natural disconnects, lease expiry, and new-run reset. Browser verification exercised two failure/reset cycles in one 576×384 render using two browser sessions on one machine, with two genuine recoveries and no reported browser errors. This does not certify physical multi-laptop behavior.
+
 The room includes an interactive navy/cyan network map above the contributor dashboard. The center represents the Node.js coordinator; each laptop, including the host, has its own selectable node. Click or keyboard-select a node to inspect its current assignment and contribution. Disconnected devices remain visible in red. Paused devices are distinct from idle devices.
 
 Blue signals represent real assignments, green signals represent accepted frame uploads, and amber return signals represent unfinished work requeued by the coordinator (not a successful upload). Frame numbers appear with transfers; completed frame cells briefly highlight. New joins and reconnects have a short appearance animation. The five totals show connected, rendering, idle, completed, and recovered assignments; repeated recoveries of one frame count separately, matching the existing recovery metric.

@@ -44,28 +44,29 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
     if(room.events.length>128)room.events.splice(0,room.events.length-128);
   }
   const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name||'').trim().slice(0,40)||'Device '+id.slice(0,6),
-    seen:now(), online:true, paused:false, completed:0, computeMs:0, uploadBytes:0});
+    seen:now(), online:true, paused:false, simulatedFailure:false, completed:0, computeMs:0, uploadBytes:0});
   function sweep(room,time=now()) {
     room.recentCompletions=room.recentCompletions.filter(e=>e.at>time-RATE_WINDOW_MS);
     for (const d of room.devices.values()) {
-      const online=time-d.seen<disconnectMs;
-      if(d.online&&!online)activity(room,'disconnected',d.id);
+      const online=!d.simulatedFailure&&time-d.seen<disconnectMs;
+      if(d.online&&!online)activity(room,'disconnected',d.id,{simulated:!!d.simulatedFailure});
       d.online=online;
     }
     for (const f of room.frames) if (f.state === 'working' && (!room.devices.get(f.device)?.online || time >= f.expires)) {
-      activity(room,'recovered',f.device,{index:f.index,reason:room.devices.get(f.device)?.online?'lease expired':'device disconnected'});
+      const owner=room.devices.get(f.device);
+      activity(room,'recovered',f.device,{index:f.index,reason:owner?.simulatedFailure?'simulated worker failure':owner?.online?'lease expired':'device disconnected',simulated:!!owner?.simulatedFailure});
       f.state = 'queued'; f.device = null; f.token = null; room.recovered++;
     }
   }
   function assignment(room, device, proof) {
-    if (!proof || !Number.isInteger(proof.index) || proof.run !== room.run || typeof proof.token !== 'string') return null;
+    if (device.simulatedFailure || !proof || !Number.isInteger(proof.index) || proof.run !== room.run || typeof proof.token !== 'string') return null;
     const frame = room.frames[proof.index];
     return frame?.state === 'working' && frame.device === device.id && frame.token === proof.token && now() < frame.expires ? frame : null;
   }
   function snapshot(r) {
     const sampledAt=now();sweep(r,sampledAt);
     return {code:r.code, host:r.host, run:r.run, revision:++r.revision, started:r.started, finished:r.finished,
-      recovered:r.recovered, config:r.config,
+      recovered:r.recovered, config:r.config, failureNotice:r.failureNotice??null,
       network:{sequence:r.eventSequence,firstSequence:r.events[0]?.sequence??r.eventSequence+1,events:r.events},
       selectedTheme:r.selectedConfig.theme,selectedConfig:r.selectedConfig,...contributorSnapshot(r,sampledAt),
       frames:r.frames.map(({index,state,device}) => ({index,state,device})),
@@ -104,8 +105,35 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
             const d = r.devices.get(b.id);
             if (!d || d.secret !== b.secret) throw fail('Join this room first.',403);
             // Sweep BEFORE refreshing presence or renewing: expired leases cannot be revived.
-            sweep(r);if(!d.online)activity(r,'reconnected',d.id);d.seen=now(); d.online=true;
+            sweep(r);if(!d.online&&!d.simulatedFailure)activity(r,'reconnected',d.id);d.seen=now(); d.online=!d.simulatedFailure;
             switch (url.pathname) {
+              case '/api/simulate-failure': {
+                if(b.id!==r.host)throw fail('Only the host can simulate a worker failure.',403);
+                if(b.run!==r.run||r.started===null||r.finished!==null)throw fail('Start an active render before simulating a failure.',409);
+                if(b.targetId===r.host)throw fail('The host cannot be disconnected by this demonstration.');
+                const target=r.devices.get(b.targetId);
+                if(!target)throw fail('Contributor not found.',404);
+                if(!target.online||target.simulatedFailure)throw fail('Select a currently connected contributor.',409);
+                const recoveredFrames=r.frames.filter(f=>f.state==='working'&&f.device===target.id).map(f=>f.index);
+                target.simulatedFailure=true;
+                sweep(r); // Exactly the same lease invalidation and requeue path as a real disconnect.
+                r.failureNotice={targetId:target.id,name:target.name,run:r.run,at:now(),recoveredFrames};
+                result=snapshot(r);break;
+              }
+              case '/api/restore-worker': {
+                if(b.id!==r.host)throw fail('Only the host can reset a simulated failure.',403);
+                if(b.run!==r.run)throw fail('Render run changed.',409);
+                if(b.targetId===r.host)throw fail('The host is not a simulated worker.');
+                const target=r.devices.get(b.targetId);
+                if(!target)throw fail('Contributor not found.',404);
+                if(target.simulatedFailure){
+                  target.simulatedFailure=false;
+                  target.online=now()-target.seen<disconnectMs;
+                  activity(r,'simulation-ended',target.id);
+                  if(target.online)activity(r,'reconnected',target.id,{simulated:true});
+                }
+                result=snapshot(r);break;
+              }
               case '/api/benchmarks':
                 if(b.id!==r.host) throw fail('Only the host can view benchmark history.',403);
                 if(b.baselineId!=null&&!r.benchmarks.some(run=>run.id===b.baselineId)) throw fail('Baseline is no longer available.');
@@ -135,14 +163,14 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 if (r.started !== null && r.finished === null) throw fail('A render is already running.');
                 r.benchmarkConditions=benchmarkConditions(b.benchmark);
                 r.config=Object.freeze({...r.selectedConfig});r.recentCompletions=[];
-                r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;
-                for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;}
+                r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;r.failureNotice=null;
+                for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;device.simulatedFailure=false;}
                 r.frames=Array.from({length:r.config.count},(_,index) => ({index,state:'queued'}));
                 result=snapshot(r); break;
               case '/api/claim': {
                 if (b.run != null && b.run !== r.run) throw fail('Render run changed.',409);
                 let f=r.frames.find(f => f.state === 'working' && f.device === b.id);
-                if (!f && !d.paused) {
+                if (!f && !d.paused && !d.simulatedFailure) {
                   f=r.frames.find(f => f.state === 'queued');
                   if (f) {
                     Object.assign(f,{state:'working',device:b.id,token:randomUUID(),expires:now()+leaseMs,attempts:(f.attempts||0)+1});
@@ -182,6 +210,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));
       } else {
         const files={'/network.js':'network.js','/network-state.js':'network-state.js','/network.css':'network.css','/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        files['/failure-demo.js']='failure-demo.js';files['/failure-demo.css']='failure-demo.css';
         files['/benchmarks.js']='benchmarks.js';files['/benchmarks.css']='benchmarks.css';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));

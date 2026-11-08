@@ -4,6 +4,7 @@ import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeGif} from './gif.js';
 import {updateBenchmarks,benchmarkRequest} from './benchmarks.js';
 import {resetNetwork} from './network.js';
+import {updateFailureDemo,resetFailureDemo} from './failure-demo.js';
 import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from './config.js';
 const $=id=>document.getElementById(id);
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
@@ -143,6 +144,8 @@ function draw(s){
  const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=!!me.paused;
  $('pause').disabled=pausePending;
  $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
+ if(me?.simulatedFailure&&(busy||activeJob))resetWorker();
+ updateFailureDemo(s,session,api,draw);
  drawDashboard(s,session.id);
  drawWorkload(s);
  updateBenchmarks(s,session,api);
@@ -176,7 +179,7 @@ async function assemble(run){
  }catch(e){say('Assembly failed: '+e.message);}finally{assembling=false;}
 }
 async function contribute(){
- if(!session||paused||busy||!state?.started||state.finished)return;
+ if(!session||paused||busy||!state?.started||state.finished||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
  busy=true;const gen=generation;
  try {const {job}=await api('claim',{run:state.run});if(gen!==generation)return;if(!job){busy=false;return;}
  activeJob=job;
@@ -224,7 +227,7 @@ async function setPaused(value){
  finally{pausePending=false;$('pause').disabled=false;if(session?.id===id)contribute();}
 }
 $('pause').onclick=()=>setPaused(!paused);
-$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}say('You left the room. Unfinished work is available to other devices.');};
+$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}say('You left the room. Unfinished work is available to other devices.');};
 $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',session.code);if(['localhost','127.0.0.1'].includes(location.hostname)){say(`Room ${session.code}. On other laptops, open the server’s Wi-Fi address printed in its terminal, then enter this code.`);return;}try{await navigator.clipboard.writeText(link.href);say('Invite link copied.');}catch{say('Share this invite: '+link.href);}};
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';

@@ -58,7 +58,7 @@ export function drawDashboard(s,self){
  const leaders=new Set(d.leaderboard.filter(r=>r.isLeader).map(r=>r.id));
  for(const device of s.devices){
   const row=rowFor(rows,device.id,10),cells=row.children;
-  const values=[device.name+(device.id===self?' (you)':''),device.role,device.online?'Connected':'Disconnected',device.status,
+  const values=[device.name+(device.id===self?' (you)':''),device.role,device.simulatedFailure?'Disconnected · simulated':device.online?'Connected':'Disconnected',device.status,
    device.completed,device.assigned,average(device.averageFrameMs),number(device.fps),device.workSharePercent.toFixed(1)+'%',device.id.slice(0,8)];
   values.forEach((v,i)=>put(cells[i],v));
   cells[3].dataset.status=device.status.toLowerCase();

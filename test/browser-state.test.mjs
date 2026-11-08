@@ -13,7 +13,7 @@ async function browser() {
   getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,backgroundPresets,RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary,
-  drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
+  updateFailureDemo(){},resetFailureDemo(){},drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
   window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null},
@@ -109,5 +109,20 @@ test('large preview playback stays within its decoded-image memory budget',async
  run('for(let i=0;i<40;i++)imageFor(new Uint8Array(576*384).fill(i))');
  assert.ok(run('cachedImageBytes<=24*1024*1024'));
  assert.ok(run('frameImages.size<40'));
+});
+
+test('simulated worker stops its active computation and resumes only after server reset',async()=>{
+ const {draw,run,context}=await browser();
+ const config={width:8,height:8,count:2,fps:20,theme:'sunny'};
+ draw(snapshot(config,{started:1000,devices:[{id:'guest',paused:false,simulatedFailure:false}]}));
+ run("activeJob={index:0,run:'first',token:'old'};busy=true;worker={terminate(){}};");
+ const generation=run('generation');
+ draw(snapshot(config,{revision:2,started:1000,devices:[{id:'guest',paused:false,simulatedFailure:true}]}));
+ assert.equal(run('activeJob'),null);assert.equal(run('busy'),false);assert.ok(run('generation')>generation);
+ await run('contribute()'); // Unexpected requests throw in this harness.
+ let claims=0;
+ context.fetch=async()=>{claims++;return {ok:true,json:async()=>({job:null})};};
+ draw(snapshot(config,{revision:3,started:1000,devices:[{id:'guest',paused:false,simulatedFailure:false}]}));
+ await run('contribute()');assert.equal(claims,1);
 });
 

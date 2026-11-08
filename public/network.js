@@ -17,7 +17,7 @@ function stopSignals(){cancelAnimationFrame(raf);raf=null;signals=[];$('network-
 function canAnimate(){return visible&&!document.hidden&&connected&&!motion.matches;}
 function inspect(){
  const d=current?.devices.find(d=>d.id===selected);
- const text=d?`${d.name}${d.id===self?' (you)':''} · ${d.status}${d.paused&&d.status==='Rendering'?' — pausing after this frame':''} · ${d.completed} frames accepted · ${(d.renderTimeMs/1000).toFixed(2)}s render time${d.assignedFrames?.length?' · Working on frame '+d.assignedFrames.map(i=>i+1).join(', '):''}`:'Coordinator · Node.js server · Assigns frames, validates uploads, and recovers unfinished work. The host laptop contributes as a separate node.';
+ const text=d?`${d.name}${d.id===self?' (you)':''} · ${d.status}${d.simulatedFailure?' (simulated failure)':''}${d.paused&&d.status==='Rendering'?' — pausing after this frame':''} · ${d.completed} frames accepted · ${(d.renderTimeMs/1000).toFixed(2)}s render time${d.assignedFrames?.length?' · Working on frame '+d.assignedFrames.map(i=>i+1).join(', '):''}`:'Coordinator · Node.js server · Assigns frames, validates uploads, and recovers unfinished work. The host laptop contributes as a separate node.';
  put('network-inspector',text);
  for(const [id,node] of nodes){node.group.classList.toggle('selected',id===selected);node.group.setAttribute('aria-pressed',String(id===selected));}
 }
@@ -41,7 +41,7 @@ function describe(e){
  return e.type==='assigned'?`${frame} ${e.reassigned?'reassigned':'assigned'} → ${name}`:
   e.type==='completed'?`${frame} accepted ← ${name}`:
   e.type==='recovered'?`${frame} requeued ← ${name} (${e.reason})`:
-  `${name} ${e.type}`;
+  `${name} ${e.type}${e.simulated?' (simulation)':''}`;
 }
 function paint(time){
  raf=null;if(!canAnimate()){stopSignals();return;}
@@ -94,9 +94,9 @@ export function drawNetwork(s,id){
  for(const d of s.devices){
   const p=layout.points.get(d.id),node=nodeFor(d.id);
   node.group.setAttribute('transform',`translate(${p.x} ${p.y})`);node.group.dataset.status=d.status.toLowerCase();
-  node.group.setAttribute('aria-label',`${d.name}${d.id===id?' (you)':''}, ${d.status}, ${d.completed} frames completed. Select for details.`);
+  node.group.setAttribute('aria-label',`${d.name}${d.id===id?' (you)':''}, ${d.status}${d.simulatedFailure?' (simulated failure)':''}, ${d.completed} frames completed. Select for details.`);
   node.name.textContent=d.name.length>19?d.name.slice(0,18)+'…':d.name;
-  node.status.textContent=`${d.id===id?'YOU · ':''}${d.status.toUpperCase()}`;
+  node.status.textContent=d.simulatedFailure?'SIMULATED FAILURE':`${d.id===id?'YOU · ':''}${d.status.toUpperCase()}`;
   if(d.assignedFrames?.length)node.badge.textContent=`RENDERING #${String(d.assignedFrames[0]+1).padStart(3,'0')}`;
   else node.badge.textContent=`${d.completed} FRAMES ACCEPTED`;
   links.push(svg('line',{x1:center.x,y1:center.y,x2:p.x,y2:p.y,'class':'network-link '+d.status.toLowerCase()}));
