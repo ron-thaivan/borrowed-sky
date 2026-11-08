@@ -109,3 +109,29 @@ test('configuration bounds preserve defaults and enforce a hard request ceiling'
  assert.ok(frameRequestLimit(validateConfig({width:2048,height:2048,count:1}))<HARD_MAX_REQUEST_BYTES);
 });
 
+test('batched collection preserves ordering and rejects stale runs, invalid ranges, and contributors',async t=>{
+ const {call,h,g,pixels,started}=await setup(t);
+ for(let i=0;i<2;i++){
+  const {job}=await call('claim',h);
+  await call('result',{...h,...job,pixels:Buffer.alloc(64,i).toString('base64'),ms:1});
+ }
+ const first=await call('frames',{...h,run:started.run,offset:0,limit:1});
+ const last=await call('frames',{...h,run:started.run,offset:1,limit:2});
+ assert.equal(first.offset,0);assert.equal(last.offset,1);
+ assert.deepEqual(first.frames,[pixels]);assert.equal(Buffer.from(last.frames[0],'base64')[0],1);
+ assert.equal(last.frames.length,1);
+ for(const range of [{offset:-1},{offset:2},{offset:.5},{limit:0},{limit:3}])assert.equal((await call('frames',{...h,...range})).status,400);
+ assert.equal((await call('frames',{...g,offset:0,limit:1})).status,403);
+ await call('start',h);
+ assert.equal((await call('frames',{...h,run:started.run,offset:1,limit:1})).status,409);
+});
+
+test('ready-room dashboard follows selected count without changing frozen config',async t=>{
+ const server=createCoordinator();await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ t.after(()=>new Promise(r=>server.close(r)));
+ const call=async(action,b={})=>(await fetch(`http://127.0.0.1:${server.address().port}/api/${action}`,{method:'POST',body:JSON.stringify(b)})).json();
+ const h=await call('create');const s=await call('configure',{id:h.id,secret:h.secret,code:h.code,count:240});
+ assert.equal(s.config.count,120);assert.equal(s.selectedConfig.count,240);
+ assert.equal(s.dashboard.remaining,240);assert.equal(s.dashboard.queued,240);
+});
+

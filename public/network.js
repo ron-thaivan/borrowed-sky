@@ -89,7 +89,7 @@ export function drawNetwork(s,id){
  $('network-map').setAttribute('viewBox',`0 0 1000 ${layout.height}`);
  const center=layout.center;
  $('network-backdrop').replaceChildren(svg('circle',{cx:center.x,cy:center.y,r:260,fill:'url(#network-aura)'}),svg('circle',{cx:center.x,cy:center.y,r:116,'class':'network-ring'}),svg('circle',{cx:center.x,cy:center.y,r:150,'class':'network-ring outer'}));
- const hub=nodeFor('coordinator',true);hub.group.setAttribute('transform',`translate(${center.x} ${center.y})`);hub.name.textContent='Coordinator';hub.status.textContent='NODE.JS SERVER';hub.group.setAttribute('aria-label','Inspect coordinator');hub.badge.textContent=`${s.completed} / ${s.config.count} FRAMES ACCEPTED`;
+ const hub=nodeFor('coordinator',true);hub.group.setAttribute('transform',`translate(${center.x} ${center.y})`);hub.name.textContent='Coordinator';hub.status.textContent='NODE.JS SERVER';hub.group.setAttribute('aria-label','Inspect coordinator');hub.badge.textContent=`${s.completed} / ${(s.started===null?(s.selectedConfig||s.config):s.config).count} FRAMES ACCEPTED`;
  const links=[];
  for(const d of s.devices){
   const p=layout.points.get(d.id),node=nodeFor(d.id);

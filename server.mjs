@@ -197,10 +197,14 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 }
                 result={ok:true}; break;
               }
-              case '/api/frames':
+              case '/api/frames': {
                 if (b.id !== r.host) throw fail('Only the host can collect frames.',403);
+                if(b.run!==undefined&&b.run!==r.run)throw fail('Render run changed.',409);
                 if (r.finished === null) throw fail('Render is not complete.');
-                result={config:r.config,run:r.run,frames:r.frames.map(f => f.data.toString('base64'))}; break;
+                const offset=b.offset??0,limit=b.limit??r.frames.length;
+                if(!Number.isInteger(offset)||offset<0||offset>=r.frames.length||!Number.isInteger(limit)||limit<1||limit>r.frames.length)throw fail('Invalid frame range');
+                result={config:r.config,run:r.run,offset,frames:r.frames.slice(offset,offset+limit).map(f => f.data.toString('base64'))}; break;
+              }
               case '/api/leave':
                 d.seen=-Infinity; sweep(r); result={ok:true}; break;
               default: throw fail('Not found',404);
@@ -214,6 +218,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         files['/benchmarks.js']='benchmarks.js';files['/benchmarks.css']='benchmarks.css';
         files['/result-viewer.js']='result-viewer.js';files['/playback.js']='playback.js';files['/result-viewer.css']='result-viewer.css';
         files['/shell.js']='shell.js';files['/platform.css']='platform.css';
+        files['/export.js']='export.js';files['/export-worker.js']='export-worker.js';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);

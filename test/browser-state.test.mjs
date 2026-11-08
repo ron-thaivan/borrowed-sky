@@ -11,15 +11,15 @@ async function browser() {
  const results={shown:[],cleared:0,errors:[]};
  const context2d={createImageData:(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}),putImageData:()=>{},clearRect(){},drawImage(){}};
  const element=()=>({children:[],dataset:{},style:{},parentElement:{style:{}},value:'',width:192,height:128,
-  getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
+  scrollIntoView(){},getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,backgroundPresets,RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary,
-  updateFailureDemo(){},resetFailureDemo(){},drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
+  updateFailureDemo(){},resetFailureDemo(){},drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},resetBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
   updateShell(){},sessionShell(){},shellConnection(){},
   createResultViewer:()=>({clear(){results.cleared++;},busy(){},failed(message){results.errors.push(message);},show(value){results.shown.push(value);},setStarting(){}}),
-  URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
+  URL,Uint8Array,Uint8ClampedArray,AbortSignal,AbortController,Blob,console,atob,btoa,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
-  window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null},
+  window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null,removeItem(){}},
   setTimeout(){},requestAnimationFrame:()=>1,cancelAnimationFrame(){},
   fetch:()=>{throw new Error('Unexpected network request');}});
  const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
@@ -152,5 +152,63 @@ test('collection errors wait for explicit retry and mismatched runs cannot be ex
  let requests=0;context.fetch=async()=>{requests++;return {ok:true,json:async()=>({run:'wrong',config,frames:['AAAAAA==']})};};
  await run("assemble('first')");assert.equal(results.shown.length,0);assert.equal(results.errors.length,1);
  draw({...finished,revision:2});assert.equal(requests,1);
+});
+
+test('selected workload drives all ready counters and elapsed time uses coordinator clock',async()=>{
+ const {draw,get}=await browser();
+ const config={width:192,height:128,count:120,fps:20,theme:'sunny'};
+ draw(snapshot(config,{selectedConfig:{...config,count:240}}));
+ assert.equal(get('frame-count').textContent,'0 / 240 frames');
+ assert.equal(get('frame-grid').children.length,240);assert.equal(get('progress').max,240);
+ draw(snapshot(config,{revision:2,started:1000,dashboard:{updatedAt:3500}}));
+ assert.equal(get('elapsed').textContent,'2.5s');
+});
+
+test('collection batches indexed frames, preserves order, and waits for asynchronous encoding',async()=>{
+ const {draw,run,context,results}=await browser();
+ const config={width:576,height:384,count:10,fps:20,theme:'sunny'};
+ draw(snapshot(config,{started:1000,finished:2000}));run("session={id:'host'}");
+ const offsets=[];
+ context.fetch=async(url,{body})=>{
+  const {run,offset,limit}=JSON.parse(body);offsets.push(offset);
+  return {ok:true,json:async()=>({run,offset,config,frames:Array.from({length:Math.min(limit,10-offset)},(_,i)=>Buffer.alloc(576*384,offset+i).toString('base64'))})};
+ };
+ let finish;
+ context.encodeInWorker=(frames,config,signal)=>{assert.equal(frames.length,10);frames.forEach((f,i)=>assert.equal(f[0],i));return new Promise(resolve=>{finish=()=>resolve({frames,gif:new Uint8Array(4)});});};
+ const pending=run("assemble('first')");
+ while(!finish)await new Promise(r=>setImmediate(r));
+ assert.deepEqual(offsets,[0,7]);assert.equal(results.shown.length,0);
+ finish();await pending;assert.equal(results.shown.length,1);assert.equal(run('assembledRun'),'first');
+});
+
+test('leaving frees preview images and suppresses delayed leave messages in the next session',async()=>{
+ const {draw,run,context,get}=await browser();
+ draw(snapshot({width:8,height:8,count:1,fps:20}));run('imageFor(new Uint8Array(64))');
+ let respond;context.fetch=()=>new Promise(r=>{respond=r;});
+ const leaving=run("$('leave').onclick()");
+ assert.equal(run('cachedImageBytes'),0);assert.equal(run('frameImages.size'),0);
+ run("session={id:'new'};say('New room ready')");respond({ok:true,json:async()=>({ok:true})});await leaving;
+ assert.equal(get('message').textContent,'New room ready');
+});
+
+test('failed pause restores both controls instead of leaving host pause disabled',async()=>{
+ const {draw,run,context,get}=await browser();
+ draw(snapshot({width:8,height:8,count:1,fps:20},{devices:[{id:'guest',paused:false}]}));
+ context.fetch=async()=>{throw Error('Connection unavailable');};
+ // Shell normally owns the mirrored host button; assert the state passed to it.
+ context.updateShell=(s,session,options)=>{get('host-pause').disabled=options.pausePending;};
+ await run('setPaused(true)');
+ assert.equal(get('pause').disabled,false);assert.equal(get('host-pause').disabled,false);
+ assert.equal(run('paused'),false);
+});
+
+test('reported worker errors pause contribution instead of repeatedly rendering a broken frame',async()=>{
+ const {draw,run,context,get}=await browser();
+ const config={width:8,height:8,count:1,fps:20,theme:'sunny'};
+ const active=snapshot(config,{started:1000,devices:[{id:'guest',paused:false}]});draw(active);
+ let claims=0;
+ context.fetch=async(url)=>({ok:true,json:async()=>url.endsWith('/claim')?(claims++,{job:{...config,index:0,token:'lease',run:'first'}}):{...active,revision:2,devices:[{id:'guest',paused:true}]}});
+ await run('contribute()');await run("worker.onmessage({data:{error:'Renderer failed'}})");
+ assert.equal(run('paused'),true);assert.equal(claims,1);assert.match(get('message').textContent,/Worker failed/);
 });
 

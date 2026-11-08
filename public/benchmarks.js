@@ -8,13 +8,14 @@ root.innerHTML=`<div class="bench-heading"><div><p class="eyebrow">MEASURED / NO
 <p id="bench-status" role="status"></p><div id="bench-cards" class="bench-cards"></div>
 <label for="bench-baseline">Single-device baseline</label><select id="bench-baseline"><option value="">First eligible baseline per run</option></select>
 <div id="bench-charts" class="bench-charts"></div>
-<h4>Previous completed runs</h4><div class="bench-scroll"><table><thead><tr><th>Completed / configuration</th><th>Devices</th><th>Wall time</th><th>Worker time</th><th>Frames/s</th><th>Average frame</th><th>Payload</th><th>Speedup / time saved</th></tr></thead><tbody id="bench-history"></tbody></table></div>
+<h4>Previous completed runs</h4><div class="bench-scroll" tabindex="0" role="region" aria-label="Benchmark history, scroll for all metrics"><table><thead><tr><th>Completed / configuration</th><th>Devices</th><th>Wall time</th><th>Worker time</th><th>Frames/s</th><th>Average frame</th><th>Payload</th><th>Speedup / time saved</th></tr></thead><tbody id="bench-history"></tbody></table></div>
 <div class="bench-definitions"><p><strong>Wall time</strong> is coordinator start to last accepted frame upload. It includes coordination and transfer, but excludes final GIF assembly. Run throughput is completed frames ÷ wall seconds.</p><p><strong>Summed worker time</strong> adds accepted frame render durations, including OS scheduling. Average frame time divides this sum by accepted frames. Neither measures CPU utilization; worker time ÷ wall time is not speedup.</p><p><strong>Accepted payload</strong> counts raw indexed frame bytes, excluding base64, HTTP, retries and GIF. Speedup = single-device wall time ÷ multi-device wall time. Conditions are host-attested, not automatically verified. Recovery runs are excluded from speedup.</p></div>
 <p>History retains the latest 50 completed runs in this room, in coordinator memory. Restarting the server clears it. Download a copy to keep your measurements.</p><button id="bench-export" class="small secondary" disabled>Download measurements JSON ↓</button>`;
 const $=id=>document.getElementById(id);
 const number=(n,d=2)=>n==null?'—':n.toLocaleString(undefined,{maximumFractionDigits:d});
 let owner=null,key=null,request=null,serial=0,runs=[],lastRun=null;
 const el=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
+export function resetBenchmarks(){owner=null;key=null;request=null;runs=[];lastRun=null;serial++;root.hidden=true;}
 export function benchmarkRequest(){
  return $('bench-confirm').checked?{benchmark:{series:$('bench-series').value,confirmed:true}}:{};
 }

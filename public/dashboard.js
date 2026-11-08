@@ -44,14 +44,15 @@ export function dashboardConnection(connected){
 }
 export function drawDashboard(s,self){
  const d=s.dashboard;if(!d)return;
+ const count=(s.started===null?(s.selectedConfig||s.config):s.config).count;
  drawNetwork(s,self);
  hasSnapshot=true;
  dashboardConnection(true);
  put($('dash-connected'),d.connected);put($('dash-completed'),d.completed);
  put($('dash-remaining'),d.remaining);put($('dash-assigned'),d.assigned);
  put($('dash-percent'),Math.floor(d.progressPercent)+'%');put($('dash-fps'),number(d.fps));
- $('dash-progress').max=s.config.count;$('dash-progress').value=d.completed;
- put($('dash-progress-label'),d.completed+' of '+s.config.count+' frames complete · '+d.queued+' queued');
+ $('dash-progress').max=count;$('dash-progress').value=d.completed;
+ put($('dash-progress-label'),d.completed+' of '+count+' frames complete · '+d.queued+' queued');
  put($('dash-updated'),'Server snapshot '+new Date(d.updatedAt).toLocaleTimeString());
  put($('dashboard-run'),s.finished?'Render complete':s.started?'Rendering together':'Ready for the first frame');
  const byId=new Map(s.devices.map(device=>[device.id,device]));

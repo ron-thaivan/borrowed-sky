@@ -1,10 +1,10 @@
 import './motion.js';
 import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
-import {encodeGif} from './gif.js';
+import {encodeInWorker} from './export.js';
 import {createResultViewer} from './result-viewer.js';
 import {updateShell,sessionShell,shellConnection} from './shell.js';
-import {updateBenchmarks,benchmarkRequest} from './benchmarks.js';
+import {updateBenchmarks,benchmarkRequest,resetBenchmarks} from './benchmarks.js';
 import {resetNetwork} from './network.js';
 import {updateFailureDemo,resetFailureDemo} from './failure-demo.js';
 import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from './config.js';
@@ -15,7 +15,7 @@ let connectionLost=false;
 const ctx=$('preview').getContext('2d');
 let savingTheme=false,thumbnailsStarted=false;
 let pausePending=false;
-let assemblyAttempt=null,startPending=false;
+let assemblyAttempt=null,startPending=false,exportController=null;
 const resultViewer=createResultViewer({imageFor,startNew:()=>startRender(),retry:()=>{if(state?.finished!==null&&session?.id===state?.host&&!assembling)void assemble(state.run);}});
 const thumbnailImages=new Map();
 let previewWorker=null,previewKey=null,previewCanvas=null,previewDimensions=null;
@@ -124,9 +124,9 @@ function imageFor(pixels,config=state.config){
  if(image.data.byteLength<=IMAGE_CACHE_BYTES){frameImages.set(pixels,image);cachedImageBytes+=image.data.byteLength;}return image;
 }
 function showFrame(pixels,config=state.config){ctx.putImageData(imageFor(pixels,config),0,0);}
-function stopAnimation(){cancelAnimationFrame(animation);animation=null;resultViewer.clear();}
+function stopAnimation(){exportController?.abort();exportController=null;cancelAnimationFrame(animation);animation=null;resultViewer.clear();}
 function base64(pixels){let s='';for(let i=0;i<pixels.length;i++)s+=String.fromCharCode(pixels[i]);return btoa(s);}
-function decode(s){return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
+function decode(s){const text=atob(s),pixels=new Uint8Array(text.length);for(let i=0;i<text.length;i++)pixels[i]=text.charCodeAt(i);return pixels;}
 function resetWorker(){generation++;worker?.terminate();worker=null;busy=false;activeJob=null;previewWorker?.terminate();previewWorker=null;previewKey=null;previewCanvas=null;}
 function updatePauseButton(){$('pause').textContent=paused?'Resume contribution':'Pause my contribution';}
 function draw(s){
@@ -137,7 +137,8 @@ function draw(s){
   $('download').hidden=true;assembledRun=null;assemblyAttempt=null;
   if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}
  }
- configurePreview(s.started===null?(s.selectedConfig||s.config):s.config);
+ const displayConfig=s.started===null?(s.selectedConfig||s.config):s.config;
+ configurePreview(displayConfig);
  if(state?.run!==s.run){ctx.clearRect(0,0,s.config.width,s.config.height);$('preview-label').textContent='WAITING FOR FIRST FRAME';}
  state=s;const isHost=session.id===s.host;
  const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=!!me.paused;
@@ -161,29 +162,39 @@ function draw(s){
  $('start').textContent=startPending?'Starting…':s.finished?'Start a new render ↗':'Start rendering ↗';
  $('role-note').textContent=isHost?'You are hosting. Share the invite, then start. Your laptop contributes too.':'You are contributing. The host starts the render and downloads the finished animation.';
  $('phase').textContent=s.finished?'COMPLETE':s.started?'RENDERING':'READY';
- $('percent').innerHTML=Math.floor(s.completed/s.config.count*100)+'<span>%</span>';
- $('frame-count').textContent=`${s.completed} / ${s.config.count} frames`;$('progress').value=s.completed;
- $('elapsed').textContent=s.started?(((s.finished||Date.now())-s.started)/1000).toFixed(1)+'s':'0.0s';
+ $('percent').innerHTML=Math.floor(s.completed/displayConfig.count*100)+'<span>%</span>';
+ $('frame-count').textContent=`${s.completed} / ${displayConfig.count} frames`;$('progress').value=s.completed;
+ $('elapsed').textContent=s.started!==null?(((s.finished??s.dashboard?.updatedAt??s.started)-s.started)/1000).toFixed(1)+'s':'0.0s';
  $('compute').textContent=(s.computeMs/1000).toFixed(1)+'s';$('recovered').textContent=s.recovered;
  $('transfer').textContent=(s.uploadBytes/1024).toFixed(0)+' KB';
  const grid=$('frame-grid');
- if(grid.children.length!==s.config.count)grid.replaceChildren(...Array.from({length:s.config.count},()=>document.createElement('div')));
- for(let i=0;i<s.config.count;i++){const status=s.frames[i]?.state||'queued';const el=grid.children[i];if(el.dataset.state!==status){el.dataset.state=status;el.className='frame '+status;el.title=`Frame ${i+1}: ${status}`;}}
+ if(grid.children.length!==displayConfig.count)grid.replaceChildren(...Array.from({length:displayConfig.count},()=>document.createElement('div')));
+ for(let i=0;i<displayConfig.count;i++){const status=s.frames[i]?.state||'queued';const el=grid.children[i];if(el.dataset.state!==status){el.dataset.state=status;el.className='frame '+status;el.title=`Frame ${i+1}: ${status}`;}}
  if(s.finished!==null&&isHost&&assembledRun!==s.run&&assemblyAttempt!==s.run&&!assembling) assemble(s.run);
 }
 async function assemble(run){
  const token={};assembling=token;assemblyAttempt=run;const gen=generation,currentSession=session,completed=state;
  const current=()=>session===currentSession&&state?.run===run&&gen===generation;
  resultViewer.busy();
- try {say('Collecting frames and assembling GIF…');const data=await api('frames');if(!current())return;
- if(data.run!==run||data.frames.length!==data.config.count)throw new Error('Collected frames do not match the completed run.');
- const frames=data.frames.map(decode);const gif=encodeGif(frames,data.config);
+ const controller=new AbortController();exportController=controller;
+ try {
+ const config=completed.config,collected=[];
+ const batch=Math.max(1,Math.min(config.count,Math.floor(2*1024*1024/(4*Math.ceil(config.width*config.height/3)))));
+ for(let offset=0;offset<config.count;offset+=batch){
+  say('Collecting animation frames '+(offset+1)+'–'+Math.min(offset+batch,config.count)+' of '+config.count+'…');
+  const data=await api('frames',{run,offset,limit:batch});if(!current())return;
+  if(data.run!==run||data.offset!==offset||JSON.stringify(data.config)!==JSON.stringify(config)||data.frames.length!==Math.min(batch,config.count-offset))throw new Error('Collected frames do not match the completed run.');
+  for(const encoded of data.frames){const pixels=decode(encoded);if(pixels.length!==config.width*config.height)throw new Error('Invalid collected frame size');collected.push(pixels);}
+ }
+ say('Encoding GIF… Your workspace remains available.');
+ const {frames,gif}=await encodeInWorker(collected,config,controller.signal);if(!current())return;
+ const data={config};
  if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;
  showFrame(frames[0],data.config);
  resultViewer.show({frames,config:data.config,snapshot:completed,url:downloadUrl,bytes:gif.length});
  updateShell(state,session,{paused,resultReady:true});
  $('preview-label').textContent='COMPLETE / OPEN ANIMATION VIEWER';say(`GIF generated successfully — ${(gif.length/1024/1024).toFixed(1)} MiB. Open the animation viewer to play and download your sky.`,'success');
- }catch(e){if(current()){say('Assembly failed: '+e.message,'error');resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(assembling===token)assembling=false;}
+ }catch(e){if(current()){say('Assembly failed: '+e.message,'error');resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(exportController===controller)exportController=null;if(assembling===token)assembling=false;}
 }
 async function contribute(){
  if(!session||paused||busy||!state?.started||state.finished||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
@@ -193,8 +204,8 @@ async function contribute(){
  worker=new Worker('/worker.js',{type:'module'});
  worker.onmessage=async({data})=>{
   if(gen!==generation)return;worker?.terminate();worker=null;
-  try{if(data.error)throw new Error(data.error);showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
-  catch(e){if(e.status!==409)say(e.message,'error');}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
+  try{if(data.error){await setPaused(true);throw new Error('Worker failed: '+data.error);}showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
+  catch(e){if(gen===generation&&e.status!==409)say(e.message,'error');}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
  };
  worker.onerror=e=>{if(gen!==generation)return;resetWorker();void setPaused(true).then(()=>say('Worker failed: '+e.message));};worker.postMessage(job);
  }catch(e){if(gen===generation){busy=false;say(e.message,'error');}}
@@ -240,11 +251,11 @@ async function setPaused(value){
   pausePending=false;draw(s);
   say(value?'Pausing after the current frame. This laptop stays connected.':'Contribution resumed.');
  }catch(e){if(session?.id===id){if(state?.run===run)paused=previous;say('Could not update pause state: '+e.message,'error');}}
- finally{pausePending=false;$('pause').disabled=false;if(session?.id===id)contribute();}
+ finally{pausePending=false;$('pause').disabled=false;if(session?.id===id){if(state)draw(state);contribute();}}
 }
 $('pause').onclick=()=>setPaused(!paused);
 $('host-pause').onclick=()=>setPaused(!paused);
-$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}say('You left the room. Unfinished work is available to other devices.');};
+$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();resetBenchmarks();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();frameImages.clear();cachedImageBytes=0;paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}if(!session)say('You left the room. Unfinished work is available to other devices.');};
 $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',session.code);if(['localhost','127.0.0.1'].includes(location.hostname)){say(`Room ${session.code}. On other laptops, open the server’s Wi-Fi address printed in its terminal, then enter this code.`);return;}try{await navigator.clipboard.writeText(link.href);say('Invite link copied.');}catch{say('Share this invite: '+link.href);}};
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
