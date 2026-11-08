@@ -1,4 +1,5 @@
 import './motion.js';
+import {setRenderingMotion} from './ambient.js';
 import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeInWorker} from './export.js';
@@ -141,7 +142,7 @@ function draw(s){
  const displayConfig=s.started===null?(s.selectedConfig||s.config):s.config;
  configurePreview(displayConfig);
  if(state?.run!==s.run){ctx.clearRect(0,0,s.config.width,s.config.height);$('preview-label').textContent='WAITING FOR FIRST FRAME';}
- state=s;const isHost=session.id===s.host;
+ state=s;setRenderingMotion(s.started!==null&&s.finished===null);const isHost=session.id===s.host;
  const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=workerFault||!!me.paused;
  $('pause').disabled=pausePending;
  $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
@@ -180,14 +181,17 @@ async function assemble(run){
  const controller=new AbortController();exportController=controller;
  try {
  const config=completed.config,collected=[];
+ resultViewer.progress(0,config.count);
  const batch=Math.max(1,Math.min(config.count,Math.floor(2*1024*1024/(4*Math.ceil(config.width*config.height/3)))));
  for(let offset=0;offset<config.count;offset+=batch){
   say('Collecting animation frames '+(offset+1)+'–'+Math.min(offset+batch,config.count)+' of '+config.count+'…');
   const data=await api('frames',{run,offset,limit:batch});if(!current())return;
   if(data.run!==run||data.offset!==offset||JSON.stringify(data.config)!==JSON.stringify(config)||data.frames.length!==Math.min(batch,config.count-offset))throw new Error('Collected frames do not match the completed run.');
   for(const encoded of data.frames){const pixels=decode(encoded);if(pixels.length!==config.width*config.height)throw new Error('Invalid collected frame size');collected.push(pixels);}
+  resultViewer.progress(collected.length,config.count);
  }
  say('Encoding GIF… Your workspace remains available.');
+ resultViewer.progress(null,config.count);
  const {frames,gif}=await encodeInWorker(collected,config,controller.signal);if(!current())return;
  const data={config};
  if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;
@@ -271,7 +275,7 @@ $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
 const leaveRoom=$('leave').onclick;
-$('leave').onclick=()=>{sessionShell(false);connectionLost=false;return leaveRoom();};
+$('leave').onclick=()=>{setRenderingMotion(false);sessionShell(false);connectionLost=false;return leaveRoom();};
 $('session-recover').onclick=$('leave').onclick;
 try{const saved=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(saved&&['code','id','secret'].every(key=>typeof saved[key]==='string'&&saved[key].length)){session={code:saved.code,id:saved.id,secret:saved.secret};$('lobby').hidden=true;$('room').hidden=false;sessionShell(true);}}catch{session=null;}
 tick();

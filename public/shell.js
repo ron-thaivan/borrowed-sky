@@ -24,7 +24,7 @@ export function updateShell(s,session,{paused=false,pending=false,pausePending=f
  put('overview-fps',(s.dashboard?.fps??0).toLocaleString(undefined,{maximumFractionDigits:2}));
  const theme=themes.find(t=>t.id===(config.theme||'sunny'))?.name||config.theme;
  put('active-config',`${finished?'Completed session':active?'Active configuration':'Selected configuration'} · ${theme} · ${config.width} × ${config.height} · ${config.count} frames · ${config.fps} FPS · ${config.density||'medium'} density · ${config.background||'original'} background`);
- const summary=finished?(host?'Rendering complete. Your animation and export are below.':'Rendering complete. The host can preview and download the shared animation.'):
+ const summary=finished?(host?(resultReady?'Your GIF is ready. Open the animation viewer to play or download it.':'All frames are complete. Open export status to follow GIF preparation or retry an export.'):'Rendering complete. The host can preview and download the shared animation.'):
   active?(me?.simulatedFailure?'Your worker is unavailable in a recovery simulation. The host can restore it.':rendering?`Rendering in progress · ${rendering} device${rendering===1?'':'s'} working${paused?' · your contribution is paused':''}.`:'Waiting for an available contributor. Resume a device to continue.'):
   host?'Choose your scene, share the room, and start when your crew is ready.':'You’re connected. The host will choose the scene and start the render.';
  put('session-summary',summary);
@@ -32,7 +32,9 @@ export function updateShell(s,session,{paused=false,pending=false,pausePending=f
  $('nav-analytics').hidden=!host;$('host-control-summary').hidden=!host;
  const recoveryVisible=host||!!me?.simulatedFailure||!!s.failureNotice;
  $('host-controls').hidden=!recoveryVisible;$('nav-controls').hidden=!recoveryVisible;
- $('nav-result').hidden=!host||!resultReady;$('view-result').hidden=!host||!resultReady;
+ // Keep preparation and retry reachable, not just successful exports.
+ $('nav-result').hidden=!host||!finished;$('view-result').hidden=!host||!finished;
+ put('view-result',resultReady?'Open animation viewer →':'Open export status →');
  $('host-start').hidden=!host;$('host-pause').hidden=!host;
  $('host-start').disabled=!host||pending||saving||active;$('host-pause').disabled=!host||pausePending;
  put('host-start',pending?'Starting…':finished?'Start a new render ↗':'Start rendering ↗');

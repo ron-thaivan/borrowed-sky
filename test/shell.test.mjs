@@ -41,17 +41,22 @@ test('contributors cannot see host controls, analytics, or host result links',()
  assert.match(e('session-summary').textContent,/host can restore/);
 });
 
-test('completion links appear only after assembly and pending start is disabled',()=>{
+test('host can reach export preparation and retry before the GIF is ready',()=>{
  const {element:e,state:s,context:c}=fixture();
+ c.updateShell(s,{id:'host'});assert.equal(e('nav-result').hidden,true);
  s.started=100;s.finished=200;s.completed=120;
  c.updateShell(s,{id:'host'});
- assert.equal(e('nav-result').hidden,true);
+ assert.equal(e('nav-result').hidden,false);assert.equal(e('view-result').hidden,false);
+ assert.equal(e('view-result').textContent,'Open export status →');
+ assert.match(e('session-summary').textContent,/retry/);
  c.updateShell(s,{id:'host'},{resultReady:true,pending:true});
+ assert.equal(e('view-result').textContent,'Open animation viewer →');
  assert.equal(e('nav-result').hidden,false);
  assert.equal(e('overview').dataset.phase,'complete');
  assert.equal(e('overview-remaining').textContent,'0');
  assert.equal(e('host-start').disabled,true);
  assert.equal(e('host-start').textContent,'Starting…');
+ c.updateShell(s,{id:'guest'});assert.equal(e('nav-result').hidden,true);assert.equal(e('view-result').hidden,true);
 });
 
 test('connection recovery and room navigation have explicit states',()=>{

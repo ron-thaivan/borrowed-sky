@@ -224,6 +224,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         files['/result-viewer.js']='result-viewer.js';files['/playback.js']='playback.js';files['/result-viewer.css']='result-viewer.css';
         files['/shell.js']='shell.js';files['/platform.css']='platform.css';
         files['/export.js']='export.js';files['/export-worker.js']='export-worker.js';
+        files['/ambient.js']='ambient.js';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);

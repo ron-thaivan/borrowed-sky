@@ -22,7 +22,7 @@
 | `test/result-viewer.test.mjs`, `test/shell.test.mjs` | Reduced-motion assertions and Windows-compatible test-source loading. |
 | `README.md` | Document safeguards and limits; retain the consolidated feature, permissions, networking, benchmark and physical-rehearsal instructions. |
 
-Architecture, dependencies, frame dimensions, rendering algorithm, palettes, deterministic fixtures and GIF encoder are unchanged. The existing GitHub Actions workflow already runs `npm test` on pushes to main and pull requests, using Node 22 and 24 with read-only repository permissions. No install step is needed. No replacement workflow was added.
+Architecture, dependencies, frame dimensions, rendering algorithm, palettes, deterministic fixtures and GIF encoder are unchanged. The existing GitHub Actions workflow already runs `npm test` on pushes to main and pull requests, using Node 20, 22 and 24 with read-only repository permissions. No install step is needed. No replacement workflow was added.
 
 ## C. Tests and measurements
 
@@ -36,6 +36,8 @@ Architecture, dependencies, frame dimensions, rendering algorithm, palettes, det
 
 Local execution used Node 24.22.1. CI execution and other Node/browser versions were not verified here. Tests using synthetic indexed frames establish encoder capacity and correctness, not physical-network speedup.
 
+Post-review integration: merged team commits `21f09f2` and `c007796`, preserving export preparation/retry accessibility and automatic ambient motion. The complete merged suite passed **79 tests, 0 failures**.
+
 ## D. Remaining limitations
 
 - No physical multi-laptop LAN test has been performed in this review. Venue reachability, firewall rules, Wi-Fi client isolation, browser throttling and cross-engine behavior need rehearsal.
@@ -44,7 +46,7 @@ Local execution used Node 24.22.1. CI execution and other Node/browser versions 
 - Rooms persist only in coordinator memory. There is no host migration or room deletion; departed identities retain their slots. Save downloads/history before a restart. A lost original host session cannot be recovered just from the room code.
 - Authenticated workers are trusted to return genuine pixels and durations. The app remains intended for a trusted demo network, not an untrusted public compute service.
 - A locally stopped faulty worker can still appear assigned until its unrenewed lease expires. Other devices then recover its work through the ordinary coordinator path.
-- Follow-up: the idle port-3000 coordinator was restarted with the safeguards and a fresh host room was left ready in the user's browser. Temporary review servers/tabs were stopped. Source changes have not been committed or pushed.
+- Follow-up: the idle port-3000 coordinator was restarted with the safeguards and a fresh host room was left ready in the user's browser. Temporary review servers/tabs were stopped. The reviewed fixes were committed in `91656cc`; subsequent integration preserves the team's export accessibility and ambient-motion changes.
 
 ## E. Physical testing checklist
 
