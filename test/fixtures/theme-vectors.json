@@ -1,0 +1,170 @@
+[
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunny",
+      "index": 0,
+      "count": 120,
+      "density": "medium",
+      "background": "original"
+    },
+    "indexedSha256": "11b8d9b73bdfe371988867894f6063c1e855211db238204b35c3675e7bf5423c",
+    "rgbSha256": "1818690dfff6e588634fd2a529d0e6b75c8ac485709721ff33726bed6b6a74d4"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunny",
+      "index": 83,
+      "count": 120,
+      "density": "low",
+      "background": "soft"
+    },
+    "indexedSha256": "008d9d06ac8cab93044b61db6e34f9faf17a963fe7b533b34bdce24f82fd27ba",
+    "rgbSha256": "36dbd9692328dfdd02b2dc6e296211279a757cd118213a611034fb96404effd8"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunny",
+      "index": 165,
+      "count": 240,
+      "density": "high",
+      "background": "deep"
+    },
+    "indexedSha256": "c32a4f778b16cb7871a4532b2b69178e24e89a934099fc5260a301f7f7a118ed",
+    "rgbSha256": "d91c91d72f3ea24278bbff746ef3826e7c4a66f2c8ac08f9e9c8ddb535e039e1"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunset",
+      "index": 0,
+      "count": 120,
+      "density": "medium",
+      "background": "original"
+    },
+    "indexedSha256": "11b8d9b73bdfe371988867894f6063c1e855211db238204b35c3675e7bf5423c",
+    "rgbSha256": "dd0b5b81f87c9abfc93ac1a0607ea63ac0c255f6bd53842a2f8dcbfc631a2713"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunset",
+      "index": 83,
+      "count": 120,
+      "density": "low",
+      "background": "soft"
+    },
+    "indexedSha256": "9d087e4680bc32c0397bde508f2a68217bb1565533f6dbbfdfd4ce9038cfcfdb",
+    "rgbSha256": "5c2f1176c8a336c5618f5f33ae7ac62520fb7d79093cbb53e2e8674913fce912"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "sunset",
+      "index": 165,
+      "count": 240,
+      "density": "high",
+      "background": "deep"
+    },
+    "indexedSha256": "ee4a8b590e2f68c28652e69bae02a4d5ec1b973a45971ec98b4c1153dc5bc51c",
+    "rgbSha256": "bdf5a8777f49515bd4fe719ee36fc331f3cdc177a12ed0fd3536afa2184c6e24"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "night",
+      "index": 0,
+      "count": 120,
+      "density": "medium",
+      "background": "original"
+    },
+    "indexedSha256": "3f15c6902e85ff08eceaaf581268a0274e66ea8bcf4d6a143f3208ca8be8de6d",
+    "rgbSha256": "359ad4908b995965f0ced85897b7bc74d23d95e6ecc2b67755c0a19ad9ca80dc"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "night",
+      "index": 83,
+      "count": 120,
+      "density": "low",
+      "background": "soft"
+    },
+    "indexedSha256": "98757e855826776cc9a88ddb786d92524aaf18160f7ef49fa486f005170fff90",
+    "rgbSha256": "afe282c2571ba400e6e4cb272ca0aa6afd81738b41ded24acf294ff8777a9cd8"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "night",
+      "index": 165,
+      "count": 240,
+      "density": "high",
+      "background": "deep"
+    },
+    "indexedSha256": "a68489caad48ddb2fa18c171c5934d5d7387b05b1814d9bcf99d056b401a3be9",
+    "rgbSha256": "4c722d7972ff10fa28bce7f8046a9068a80746b239658972590cba8fc25316e8"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "storm",
+      "index": 0,
+      "count": 120,
+      "density": "medium",
+      "background": "original"
+    },
+    "indexedSha256": "b8291dbd31dfa6e69c9c316fc9a34506790a4f6240ec3403f4b529541e31ab0b",
+    "rgbSha256": "f43abe6376a72c25de7f199c4a5f7148b78f2956aee3994a1cc911934fb25ec7"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "storm",
+      "index": 83,
+      "count": 120,
+      "density": "low",
+      "background": "soft"
+    },
+    "indexedSha256": "ecd13a41c56b88f1b8e427a0dd4edd37c40c2b6441c908aa6e8d9226ac5c44c5",
+    "rgbSha256": "657232b9e0c312632084bbb40aa64382dbbe9fc787643044ff78d8b250db5dee"
+  },
+  {
+    "config": {
+      "width": 97,
+      "height": 65,
+      "fps": 20,
+      "theme": "storm",
+      "index": 165,
+      "count": 240,
+      "density": "high",
+      "background": "deep"
+    },
+    "indexedSha256": "fc319eadf23f5f9e00abb93eb0fb001b9ef5d2e5f6e3fb7ec7d9eb5913786a90",
+    "rgbSha256": "59531ef29d7fa6e21aab34c64c8c9e166af1cd65e076fb6cd0d1f0f7b5d48122"
+  }
+]
