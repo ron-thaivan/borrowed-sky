@@ -3,6 +3,7 @@ import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeGif} from './gif.js';
 import {createResultViewer} from './result-viewer.js';
+import {updateShell,sessionShell,shellConnection} from './shell.js';
 import {updateBenchmarks,benchmarkRequest} from './benchmarks.js';
 import {resetNetwork} from './network.js';
 import {updateFailureDemo,resetFailureDemo} from './failure-demo.js';
@@ -10,6 +11,7 @@ import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from './config.js';
 const $=id=>document.getElementById(id);
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
 let activeJob=null,polling=false,pollAgain=false;
+let connectionLost=false;
 const ctx=$('preview').getContext('2d');
 let savingTheme=false,thumbnailsStarted=false;
 let pausePending=false;
@@ -34,7 +36,7 @@ async function saveConfiguration(patch){
  savingTheme=true;$('theme-options').disabled=true;$('start').disabled=true;
  const currentSession=session;
  try{const s=await api('configure',patch);if(session!==currentSession)return;draw(s);say('Settings saved for the next render.');}
- catch(e){if(session===currentSession)say(e.message);}
+ catch(e){if(session===currentSession)say(e.message,'error');}
  finally{savingTheme=false;if(session===currentSession&&state)draw(state);}
 }
 function drawWorkload(s){
@@ -98,7 +100,7 @@ function makeImage(context,pixels,config){
  return image;
 }
 
-const say=text=>$('message').textContent=text;
+const say=(text,tone='info')=>{$('message').textContent=text;$('message').dataset.tone=tone;$('message').setAttribute('role',tone==='error'?'alert':'status');};
 async function api(action,body={}) {
  const res=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...session,...body}),signal:AbortSignal.timeout(10000)});
  const data=await res.json();if(!res.ok)throw Object.assign(new Error(data.error),{status:res.status});return data;
@@ -154,8 +156,9 @@ function draw(s){
  showSelectedThumbnail();
 
  $('room-code').textContent=s.code;$('start').hidden=!isHost;$('start').disabled=startPending||savingTheme||s.started!==null&&s.finished===null;
+ updateShell(s,session,{paused,pending:startPending,pausePending,saving:savingTheme,resultReady:assembledRun===s.run&&s.run!==null});
  resultViewer.setStarting(startPending||savingTheme);
- $('start').textContent=s.finished?'Render again ↗':'Start rendering ↗';
+ $('start').textContent=startPending?'Starting…':s.finished?'Start a new render ↗':'Start rendering ↗';
  $('role-note').textContent=isHost?'You are hosting. Share the invite, then start. Your laptop contributes too.':'You are contributing. The host starts the render and downloads the finished animation.';
  $('phase').textContent=s.finished?'COMPLETE':s.started?'RENDERING':'READY';
  $('percent').innerHTML=Math.floor(s.completed/s.config.count*100)+'<span>%</span>';
@@ -178,8 +181,9 @@ async function assemble(run){
  if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;
  showFrame(frames[0],data.config);
  resultViewer.show({frames,config:data.config,snapshot:completed,url:downloadUrl,bytes:gif.length});
- $('preview-label').textContent='COMPLETE / VIEW ANIMATION BELOW';say(`GIF generated successfully — ${(gif.length/1024/1024).toFixed(1)} MiB. Your animation viewer is ready below.`);
- }catch(e){if(current()){say('Assembly failed: '+e.message);resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(assembling===token)assembling=false;}
+ updateShell(state,session,{paused,resultReady:true});
+ $('preview-label').textContent='COMPLETE / OPEN ANIMATION VIEWER';say(`GIF generated successfully — ${(gif.length/1024/1024).toFixed(1)} MiB. Open the animation viewer to play and download your sky.`,'success');
+ }catch(e){if(current()){say('Assembly failed: '+e.message,'error');resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(assembling===token)assembling=false;}
 }
 async function contribute(){
  if(!session||paused||busy||!state?.started||state.finished||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
@@ -190,15 +194,16 @@ async function contribute(){
  worker.onmessage=async({data})=>{
   if(gen!==generation)return;worker?.terminate();worker=null;
   try{if(data.error)throw new Error(data.error);showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
-  catch(e){if(e.status!==409)say(e.message);}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
+  catch(e){if(e.status!==409)say(e.message,'error');}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
  };
  worker.onerror=e=>{if(gen!==generation)return;resetWorker();void setPaused(true).then(()=>say('Worker failed: '+e.message));};worker.postMessage(job);
- }catch(e){if(gen===generation){busy=false;say(e.message);}}
+ }catch(e){if(gen===generation){busy=false;say(e.message,'error');}}
 }
 async function enter(action){
  if(joining)return;joining=true;$('create').disabled=$('join').disabled=true;
- try{const s=await api(action,{name:$('name').value.trim(),code:$('code').value.trim().toUpperCase()});session={code:s.code,id:s.id,secret:s.secret};sessionStorage.setItem('borrowed-sky',JSON.stringify(session));$('lobby').hidden=true;$('room').hidden=false;say('');draw(s);$('studio').scrollIntoView({block:'start'});contribute();}
- catch(e){say(e.message);}finally{joining=false;$('create').disabled=$('join').disabled=false;}
+ $(action==='create'?'create':'join').textContent=action==='create'?'Creating room…':'Joining room…';say(action==='create'?'Creating your rendering room…':'Connecting to your team…');
+ try{const s=await api(action,{name:$('name').value.trim(),code:$('code').value.trim().toUpperCase()});session={code:s.code,id:s.id,secret:s.secret};sessionStorage.setItem('borrowed-sky',JSON.stringify(session));$('lobby').hidden=true;$('room').hidden=false;say('');draw(s);$('overview').scrollIntoView({block:'start'});contribute();}
+ catch(e){say(e.message,'error');}finally{joining=false;$('create').disabled=$('join').disabled=false;$('create').textContent='Create a room ↗';$('join').textContent='Join room →';}
 }
 async function poll(){
  if(!session)return;
@@ -212,35 +217,40 @@ async function poll(){
   draw(s);
   // Do not terminate a newer job if this heartbeat described a previous one.
   if(job&&activeJob===job&&!s.leaseRenewed)resetWorker();
-  $('connection').textContent='Connected';contribute();
- }catch(e){if(session===currentSession){$('connection').textContent='Reconnecting…';dashboardConnection(false);say(e.message);}}
+  shellConnection(true);if(connectionLost){connectionLost=false;say('Connection restored. Your session is up to date.','success');}contribute();
+ }catch(e){if(session===currentSession){connectionLost=true;shellConnection(false,e.status===404||e.status===403);dashboardConnection(false);say(e.message,'error');}}
  finally{polling=false;if(pollAgain){pollAgain=false;void poll();}}
 }
 async function tick(){await poll();setTimeout(tick,900);}
 $('create').onclick=()=>enter('create');$('join').onclick=()=>enter('join');
 async function startRender(){
  if(!session||startPending||savingTheme)return;
- startPending=true;$('start').disabled=true;resultViewer.setStarting(true);const currentSession=session;
- try{const s=await api('start',benchmarkRequest());if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}
- catch(e){if(session===currentSession)say(e.message);}
+ startPending=true;$('start').disabled=true;$('host-start').disabled=true;resultViewer.setStarting(true);const currentSession=session;
+ try{const s=await api('start',benchmarkRequest());if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');$('overview').scrollIntoView({block:'start'});contribute();}
+ catch(e){if(session===currentSession)say(e.message,'error');}
  finally{startPending=false;if(session===currentSession&&state)draw(state);}
 }
 $('start').onclick=startRender;
+$('host-start').onclick=startRender;
 async function setPaused(value){
  if(!session||pausePending)return;
- const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;
+ const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;$('host-pause').disabled=true;
  try{
   const s=await api('pause',{paused:value,run});if(session?.id!==id)return;
   pausePending=false;draw(s);
   say(value?'Pausing after the current frame. This laptop stays connected.':'Contribution resumed.');
- }catch(e){if(session?.id===id){if(state?.run===run)paused=previous;say('Could not update pause state: '+e.message);}}
+ }catch(e){if(session?.id===id){if(state?.run===run)paused=previous;say('Could not update pause state: '+e.message,'error');}}
  finally{pausePending=false;$('pause').disabled=false;if(session?.id===id)contribute();}
 }
 $('pause').onclick=()=>setPaused(!paused);
+$('host-pause').onclick=()=>setPaused(!paused);
 $('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}say('You left the room. Unfinished work is available to other devices.');};
 $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',session.code);if(['localhost','127.0.0.1'].includes(location.hostname)){say(`Room ${session.code}. On other laptops, open the server’s Wi-Fi address printed in its terminal, then enter this code.`);return;}try{await navigator.clipboard.writeText(link.href);say('Invite link copied.');}catch{say('Share this invite: '+link.href);}};
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
-try{session=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(session){$('lobby').hidden=true;$('room').hidden=false;}}catch{session=null;}
+const leaveRoom=$('leave').onclick;
+$('leave').onclick=()=>{sessionShell(false);connectionLost=false;return leaveRoom();};
+$('session-recover').onclick=$('leave').onclick;
+try{session=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(session){$('lobby').hidden=true;$('room').hidden=false;sessionShell(true);}}catch{session=null;}
 tick();
 

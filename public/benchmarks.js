@@ -1,10 +1,10 @@
 const root=document.getElementById('benchmarks');
 root.innerHTML=`<div class="bench-heading"><div><p class="eyebrow">MEASURED / NOT ESTIMATED</p><h3>Performance lab</h3></div><button id="bench-refresh" class="small secondary">Refresh history</button></div>
 <p>Compare completed renders in this room. Devices below count browser identities that delivered at least one accepted frame, not idle connections.</p>
-<fieldset id="bench-setup"><legend>Optional controlled benchmark — before each render</legend>
+<details class="benchmark-protocol"><summary>Set up a comparable benchmark</summary><fieldset id="bench-setup"><legend>Optional controlled benchmark — before each render</legend>
 <label for="bench-series">Test series and conditions</label><input id="bench-series" maxlength="160" placeholder="e.g. Lab A · plugged in · Chrome · same Wi-Fi">
 <label class="bench-confirm"><input id="bench-confirm" type="checkbox"> For this run, I confirm distinct physical laptops, the same coordinator, network, power/browser settings and background load as this series, with the baseline laptop included. Warm-up policy is consistent.</label>
-<p>For a baseline, render with only one laptop contributing. Then add a second and third laptop and repeat the same workload. Start resumes all joined devices; leave unused devices out of the room. Repeat each configuration to assess variability.</p></fieldset>
+<p>For a baseline, render with only one laptop contributing. Then add a second and third laptop and repeat the same workload. Start resumes all joined devices; leave unused devices out of the room. Repeat each configuration to assess variability.</p></fieldset></details>
 <p id="bench-status" role="status"></p><div id="bench-cards" class="bench-cards"></div>
 <label for="bench-baseline">Single-device baseline</label><select id="bench-baseline"><option value="">First eligible baseline per run</option></select>
 <div id="bench-charts" class="bench-charts"></div>

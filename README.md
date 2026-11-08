@@ -264,3 +264,15 @@ Preview controls do not change the exported GIF: the existing encoder preserves 
 
 Verification: `node --test` includes clock-controlled playback tests, completed-result metadata/control tests, and stale/failed collection tests, plus the existing configuration, GIF decoding, theme determinism, room recovery and authentication suite. To check manually, finish a render as host, pause and scrub, try each speed, disable Loop and play to the end, download the GIF, change next-run settings, and use Start a new render. The old result should disappear while the new run starts from zero.
 
+## Unified workspace
+
+The interface puts the live canvas, progress, current configuration and network totals first. A persistent header shows the room, role and connection state; section navigation connects Overview, Network, Contributors, Analytics, Configuration, Host controls and the completed animation. On narrow screens the section navigation scrolls horizontally and cards stack. Keyboard focus indicators, a skip link and reduced-motion styling are included.
+
+The host can configure and start a render from the overview or session controls. **Pause my contribution** only pauses the current device; other contributors continue. Contributor views omit host-only analytics, start controls and final exports, while retaining worker recovery notices. Existing server authentication remains authoritative. Comparable benchmark setup is expandable within Performance lab. Connection failures show reconnection status, and an unavailable room exposes a return-to-setup action.
+
+The presentation update adds `public/shell.js` for server-backed workspace summaries and `public/platform.css` for shared feature styling. It reorganizes `public/index.html`, replaces the base presentation in `public/style.css`, and replaces decorative scrolling effects in `public/motion.js` with section tracking. The coordinator change only serves the two new static assets; rendering, assignment, recovery and metric definitions are unchanged.
+
+Validation: all 59 tests pass, including workspace role, configuration, completion and connection-state tests. Two browser sessions completed a 384 × 256 Night Sky render with 120 frames, local pause/resume, a simulated worker failure recovering one frame, restoration and GIF assembly. The completed viewer reported two contributing identities and the matching settings; playback and speed selection worked with no captured browser errors. A narrow-screen contributor view had no document overflow. These sessions ran on one physical machine, so this is a functional check, not a distributed speedup measurement.
+
+For a multi-laptop check, run `npm start`, open the coordinator's printed LAN address on every laptop, create a room on the host and share its invite. Verify shared settings and progress, contributor restrictions, local pause/resume and host recovery simulation. Finish the render, inspect the animation and analytics, then start another run and confirm that progress resets and the previous download disappears. Repeat on a narrow window and with reduced motion enabled.
+
