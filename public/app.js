@@ -2,6 +2,7 @@ import './motion.js';
 import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeGif} from './gif.js';
+import {createResultViewer} from './result-viewer.js';
 import {updateBenchmarks,benchmarkRequest} from './benchmarks.js';
 import {resetNetwork} from './network.js';
 import {updateFailureDemo,resetFailureDemo} from './failure-demo.js';
@@ -12,6 +13,8 @@ let activeJob=null,polling=false,pollAgain=false;
 const ctx=$('preview').getContext('2d');
 let savingTheme=false,thumbnailsStarted=false;
 let pausePending=false;
+let assemblyAttempt=null,startPending=false;
+const resultViewer=createResultViewer({imageFor,startNew:()=>startRender(),retry:()=>{if(state?.finished!==null&&session?.id===state?.host&&!assembling)void assemble(state.run);}});
 const thumbnailImages=new Map();
 let previewWorker=null,previewKey=null,previewCanvas=null,previewDimensions=null;
 function options(id,values){
@@ -119,13 +122,7 @@ function imageFor(pixels,config=state.config){
  if(image.data.byteLength<=IMAGE_CACHE_BYTES){frameImages.set(pixels,image);cachedImageBytes+=image.data.byteLength;}return image;
 }
 function showFrame(pixels,config=state.config){ctx.putImageData(imageFor(pixels,config),0,0);}
-function stopAnimation(){cancelAnimationFrame(animation);animation=null;}
-function playFrames(frames,config){
- const {fps}=config;
- stopAnimation();let start=null,last=-1;
- const paint=time=>{if(start===null)start=time;const index=Math.floor((time-start)*fps/1000)%frames.length;if(index!==last){showFrame(frames[index],config);last=index;}animation=requestAnimationFrame(paint);};
- animation=requestAnimationFrame(paint);
-}
+function stopAnimation(){cancelAnimationFrame(animation);animation=null;resultViewer.clear();}
 function base64(pixels){let s='';for(let i=0;i<pixels.length;i++)s+=String.fromCharCode(pixels[i]);return btoa(s);}
 function decode(s){return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
 function resetWorker(){generation++;worker?.terminate();worker=null;busy=false;activeJob=null;previewWorker?.terminate();previewWorker=null;previewKey=null;previewCanvas=null;}
@@ -135,7 +132,7 @@ function draw(s){
  if(state?.run!==s.run){
   resetWorker();stopAnimation();paused=false;updatePauseButton();
   frameImages.clear();cachedImageBytes=0;
-  $('download').hidden=true;assembledRun=null;
+  $('download').hidden=true;assembledRun=null;assemblyAttempt=null;
   if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}
  }
  configurePreview(s.started===null?(s.selectedConfig||s.config):s.config);
@@ -156,7 +153,8 @@ function draw(s){
  $('render-title').textContent=themes.find(t=>t.id===((s.started?s.config.theme:s.selectedTheme)||'sunny')).name+' loop';
  showSelectedThumbnail();
 
- $('room-code').textContent=s.code;$('start').hidden=!isHost;$('start').disabled=savingTheme||s.started!==null&&s.finished===null;
+ $('room-code').textContent=s.code;$('start').hidden=!isHost;$('start').disabled=startPending||savingTheme||s.started!==null&&s.finished===null;
+ resultViewer.setStarting(startPending||savingTheme);
  $('start').textContent=s.finished?'Render again ↗':'Start rendering ↗';
  $('role-note').textContent=isHost?'You are hosting. Share the invite, then start. Your laptop contributes too.':'You are contributing. The host starts the render and downloads the finished animation.';
  $('phase').textContent=s.finished?'COMPLETE':s.started?'RENDERING':'READY';
@@ -168,15 +166,20 @@ function draw(s){
  const grid=$('frame-grid');
  if(grid.children.length!==s.config.count)grid.replaceChildren(...Array.from({length:s.config.count},()=>document.createElement('div')));
  for(let i=0;i<s.config.count;i++){const status=s.frames[i]?.state||'queued';const el=grid.children[i];if(el.dataset.state!==status){el.dataset.state=status;el.className='frame '+status;el.title=`Frame ${i+1}: ${status}`;}}
- if(s.finished&&isHost&&assembledRun!==s.run&&!assembling) assemble(s.run);
+ if(s.finished!==null&&isHost&&assembledRun!==s.run&&assemblyAttempt!==s.run&&!assembling) assemble(s.run);
 }
 async function assemble(run){
- assembling=true;const gen=generation;
- try {say('Collecting frames and assembling GIF…');const data=await api('frames');if(!session||state.run!==run||gen!==generation)return;
+ const token={};assembling=token;assemblyAttempt=run;const gen=generation,currentSession=session,completed=state;
+ const current=()=>session===currentSession&&state?.run===run&&gen===generation;
+ resultViewer.busy();
+ try {say('Collecting frames and assembling GIF…');const data=await api('frames');if(!current())return;
+ if(data.run!==run||data.frames.length!==data.config.count)throw new Error('Collected frames do not match the completed run.');
  const frames=data.frames.map(decode);const gif=encodeGif(frames,data.config);
  if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;
- playFrames(frames,data.config);$('preview-label').textContent='FINISHED / LOOPING';say(`Animation ready — ${(gif.length/1024/1024).toFixed(1)} MB GIF. Payload metric excludes base64 and protocol overhead.`);
- }catch(e){say('Assembly failed: '+e.message);}finally{assembling=false;}
+ showFrame(frames[0],data.config);
+ resultViewer.show({frames,config:data.config,snapshot:completed,url:downloadUrl,bytes:gif.length});
+ $('preview-label').textContent='COMPLETE / VIEW ANIMATION BELOW';say(`GIF generated successfully — ${(gif.length/1024/1024).toFixed(1)} MiB. Your animation viewer is ready below.`);
+ }catch(e){if(current()){say('Assembly failed: '+e.message);resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(assembling===token)assembling=false;}
 }
 async function contribute(){
  if(!session||paused||busy||!state?.started||state.finished||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
@@ -215,7 +218,14 @@ async function poll(){
 }
 async function tick(){await poll();setTimeout(tick,900);}
 $('create').onclick=()=>enter('create');$('join').onclick=()=>enter('join');
-$('start').onclick=async()=>{try{const currentSession=session;const s=await api('start',benchmarkRequest());if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}catch(e){say(e.message);}};
+async function startRender(){
+ if(!session||startPending||savingTheme)return;
+ startPending=true;$('start').disabled=true;resultViewer.setStarting(true);const currentSession=session;
+ try{const s=await api('start',benchmarkRequest());if(session!==currentSession)return;draw(s);say('Render started. Invite more laptops while it runs.');contribute();}
+ catch(e){if(session===currentSession)say(e.message);}
+ finally{startPending=false;if(session===currentSession&&state)draw(state);}
+}
+$('start').onclick=startRender;
 async function setPaused(value){
  if(!session||pausePending)return;
  const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;

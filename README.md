@@ -254,3 +254,13 @@ History uses authenticated host-only `POST /api/benchmarks`, with optional `base
 
 Run `node --test` to verify accepted-only metric collection, permissions, immutable history, bounded retention, workload/conditions comparison, correct speedup/slowdown calculations, and existing rendering/recovery behavior. UI implementation is in `public/benchmarks.js` and `public/benchmarks.css`, wired through `public/app.js` and `public/index.html`; server integration is in `server.mjs` and tests in `test/benchmarks.test.mjs`.
 
+# Completed animation viewer
+
+After the authenticated host collects all frames, **Your shared sky** displays a large pixel-art preview, Play/Pause, Restart, a loop toggle, 0.5×/1×/1.5×/2× preview speeds, a frame slider and previous/next-frame buttons. Scrubbing pauses playback. Hidden tabs suspend preview animation without losing their position. Decoded images share the existing 24 MiB cache; the viewer retains indexed frames rather than decoding every frame to RGBA at once.
+
+Preview controls do not change the exported GIF: the existing encoder preserves the completed configuration's resolution, frame ordering, palette, timing and infinite-loop extension. The completion panel includes the GIF size, a prominent download link, accepted frame count, theme, resolution, contributing identities (devices with accepted frames), coordinator wall time, average accepted worker render time, and the full configuration. These are taken from the completed run, not next-run settings. Contributors retain their existing permissions; collection/export and the final viewer remain host-only.
+
+**Start a new render** uses the same authenticated start endpoint and current selected settings. It clears prior playback, cached images and download URLs; existing server run IDs and lease tokens continue to reject stale results. Collection responses are checked against the current session, generation and run before display. An export failure exposes an explicit retry button instead of repeatedly assembling on every heartbeat.
+
+Verification: `node --test` includes clock-controlled playback tests, completed-result metadata/control tests, and stale/failed collection tests, plus the existing configuration, GIF decoding, theme determinism, room recovery and authentication suite. To check manually, finish a render as host, pause and scrub, try each speed, disable Loop and play to the end, download the GIF, change next-run settings, and use Start a new render. The old result should disappear while the new run starts from zero.
+

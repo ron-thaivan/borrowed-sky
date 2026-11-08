@@ -8,12 +8,14 @@ import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from '../public/config.
 // Exercise the actual browser controller with a minimal DOM; no browser dependency.
 async function browser() {
  const elements=new Map();
+ const results={shown:[],cleared:0,errors:[]};
  const context2d={createImageData:(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}),putImageData:()=>{},clearRect(){},drawImage(){}};
  const element=()=>({children:[],dataset:{},style:{},parentElement:{style:{}},value:'',width:192,height:128,
   getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,backgroundPresets,RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary,
   updateFailureDemo(){},resetFailureDemo(){},drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
+  createResultViewer:()=>({clear(){results.cleared++;},busy(){},failed(message){results.errors.push(message);},show(value){results.shown.push(value);},setStarting(){}}),
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
   window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null},
@@ -23,7 +25,7 @@ async function browser() {
  vm.runInContext(source.replace(/^import .*;\r?$/gm,''),context);
  vm.runInContext("session={id:'guest'}",context);
  const draw=state=>{context.snapshot=state;vm.runInContext('draw(snapshot)',context);};
- return {context,get,draw,run:code=>vm.runInContext(code,context)};
+ return {context,get,draw,results,run:code=>vm.runInContext(code,context)};
 }
 const snapshot=(config,overrides={})=>({code:'ROOM',host:'host',run:'first',revision:1,config,devices:[],frames:[],completed:0,computeMs:0,uploadBytes:0,recovered:0,started:null,finished:null,...overrides});
 
@@ -124,5 +126,30 @@ test('simulated worker stops its active computation and resumes only after serve
  context.fetch=async()=>{claims++;return {ok:true,json:async()=>({job:null})};};
  draw(snapshot(config,{revision:3,started:1000,devices:[{id:'guest',paused:false,simulatedFailure:false}]}));
  await run('contribute()');assert.equal(claims,1);
+});
+
+test('late collection cannot show an old animation after a new run or leave',async()=>{
+ for(const leave of [false,true]){
+  const {draw,run,context,results}=await browser();
+  const config={width:2,height:2,count:1,fps:20,theme:'sunny'};
+  draw(snapshot(config,{started:1000,finished:2000}));
+  run("session={id:'host'}");let respond;
+  context.fetch=()=>new Promise(resolve=>{respond=resolve;});
+  const pending=run("assemble('first')");
+  if(leave)run('resetWorker();session=null;state=null;stopAnimation()');
+  else draw(snapshot(config,{run:'second',revision:2,started:3000}));
+  respond({ok:true,json:async()=>({run:'first',config,frames:['AAAAAA==']})});
+  await pending;assert.equal(results.shown.length,0);assert.equal(run('assembledRun'),null);
+  assert.equal(run('assembling'),false);
+ }
+});
+
+test('collection errors wait for explicit retry and mismatched runs cannot be exported',async()=>{
+ const {draw,run,context,results}=await browser();
+ const config={width:2,height:2,count:1,fps:20,theme:'sunny'};
+ const finished=snapshot(config,{started:1000,finished:2000});draw(finished);run("session={id:'host'}");
+ let requests=0;context.fetch=async()=>{requests++;return {ok:true,json:async()=>({run:'wrong',config,frames:['AAAAAA==']})};};
+ await run("assemble('first')");assert.equal(results.shown.length,0);assert.equal(results.errors.length,1);
+ draw({...finished,revision:2});assert.equal(requests,1);
 });
 

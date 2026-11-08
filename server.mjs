@@ -212,6 +212,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         const files={'/network.js':'network.js','/network-state.js':'network-state.js','/network.css':'network.css','/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
         files['/failure-demo.js']='failure-demo.js';files['/failure-demo.css']='failure-demo.css';
         files['/benchmarks.js']='benchmarks.js';files['/benchmarks.css']='benchmarks.css';
+        files['/result-viewer.js']='result-viewer.js';files['/playback.js']='playback.js';files['/result-viewer.css']='result-viewer.css';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
