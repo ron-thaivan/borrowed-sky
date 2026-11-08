@@ -54,6 +54,16 @@ Credentials survive refresh in session storage for that tab. Keep the original h
 
 A renderer startup, execution or message-delivery failure stops that laptop locally even if its pause request cannot reach the server. Other devices continue, and the abandoned lease expires normally. Use **Resume contribution** to retry, or start a new run to reset the fault. Final animation playback does not auto-start with reduced motion enabled; explicit Play remains available.
 
+### Reported browser and hardware information
+
+The contributor table preserves session IDs and rendering statistics and adds **Reported browser / OS** and **Reported hardware**. Optional browser APIs provide logical processor count and a coarse estimate of total RAM; unavailable values are explicitly labeled. These are client reports, not physical CPU core counts, free memory, CPU utilization, or performance measurements. RAM may be unavailable on ordinary LAN HTTP or in privacy-restricted browsers. OS/browser family labels are best-effort and omit version numbers.
+
+A random UUID stored under `borrowed-sky-browser-id` in local storage supplies a recognizable `Browser …` label across refreshes and visits to the same site origin. Only its short label is exposed in room snapshots. It is not a fingerprint, authentication token, or proof of a unique physical laptop. Different origins (including localhost versus the LAN address), profiles, private windows, or clearing site data can produce different labels. Without storage it lasts only for the page lifetime; without secure randomness the label is unavailable. No hostname, hardware serial, exact OS version, raw user-agent string, GPU identity, or CPU/free-memory usage is sent.
+
+Reports are refreshed through the existing authenticated heartbeat, including reconnects. Missing reports from older clients retain the previous report; supplied reports are validated and replace it. The server records its own receipt time. Full reports allow only `browserId`, `logicalProcessors`, `memoryGiB`, `os`, and `browser`; unsupported values/fields are rejected. Labels and reported capabilities never affect authorization, assignment order, benchmark worker counts, or device deduplication. Multiple tabs remain independent rendering sessions even if their browser labels match. There is no new coordinator, protocol, or background hardware monitor.
+
+See [Python backend integration notes](docs/PYTHON-INTEGRATION.md) for the source comparison and features intentionally not ported.
+
 ### Recovery and failure demonstration
 
 Browsers poll about every 900 ms. After seven seconds without authenticated activity, a device becomes disconnected and its unfinished work is requeued on the next coordinator request. Assignments also have 30-second leases; only a matching current assignment proof renews one. The coordinator sweeps before refreshing presence, so expired proofs cannot revive old assignments. Late/duplicate/stale uploads are rejected and never receive credit.

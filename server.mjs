@@ -1,5 +1,6 @@
 import {benchmarkConditions,recordBenchmark,benchmarkHistory,HISTORY_LIMIT} from './lib/benchmarks.mjs';
 import {contributorSnapshot,RATE_WINDOW_MS} from './lib/dashboard.mjs';
+import {validateDeviceInfo} from './public/device-info.js';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {randomBytes, randomUUID} from 'node:crypto';
@@ -44,8 +45,12 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
     room.events.push({sequence:++room.eventSequence,run:room.run,at:now(),type,device,...details});
     if(room.events.length>128)room.events.splice(0,room.events.length-128);
   }
-  const newDevice = (id, name) => ({id, secret:randomUUID(), name:String(name||'').trim().slice(0,40)||'Device '+id.slice(0,6),
-    seen:now(), online:true, paused:false, simulatedFailure:false, completed:0, computeMs:0, uploadBytes:0});
+  const newDevice = (id, name, report) => {
+    const deviceInfo=report===undefined?null:validateDeviceInfo(report);
+    return {id, secret:randomUUID(), name:String(name||'').trim().slice(0,40)||(deviceInfo?.browserId?'Browser '+deviceInfo.browserId.slice(0,8):'Device '+id.slice(0,6)),
+      deviceInfo,deviceInfoUpdatedAt:deviceInfo?now():null,
+      seen:now(), online:true, paused:false, simulatedFailure:false, completed:0, computeMs:0, uploadBytes:0};
+  };
   function sweep(room,time=now()) {
     room.recentCompletions=room.recentCompletions.filter(e=>e.at>time-RATE_WINDOW_MS);
     for (const d of room.devices.values()) {
@@ -91,7 +96,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           const id = randomUUID();
           const r = {code,host:id,devices:new Map(),frames:[],events:[],eventSequence:0,recentCompletions:[],selectedConfig:renderingConfig,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
           r.benchmarks=[];r.benchmarkConditions=null;
-          r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
+          r.devices.set(id,newDevice(id,b.name || 'Host laptop',b.deviceInfo)); rooms.set(code,r);
           activity(r,'joined',id);
           result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
         } else {
@@ -99,12 +104,13 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           if (!r) throw fail('Room not found. Check the six-character code.',404);
           if (url.pathname === '/api/join') {
             if (r.devices.size >= 32) throw fail('Room is full');
-            const id = randomUUID(); r.devices.set(id,newDevice(id,b.name));
+            const id = randomUUID(); r.devices.set(id,newDevice(id,b.name,b.deviceInfo));
             activity(r,'joined',id);
             result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
           } else {
             const d = r.devices.get(b.id);
             if (!d || d.secret !== b.secret) throw fail('Join this room first.',403);
+            const deviceInfo=url.pathname==='/api/state'&&Object.hasOwn(b,'deviceInfo')?validateDeviceInfo(b.deviceInfo):undefined;
             // Sweep BEFORE refreshing presence or renewing: expired leases cannot be revived.
             sweep(r);if(!d.online&&!d.simulatedFailure)activity(r,'reconnected',d.id);d.seen=now(); d.online=!d.simulatedFailure;
             switch (url.pathname) {
@@ -141,6 +147,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 result={runs:benchmarkHistory(r.benchmarks,b.baselineId),limit:HISTORY_LIMIT};break;
               case '/api/state': {
                 if (b.paused !== undefined && typeof b.paused !== 'boolean') throw fail('Invalid pause state');
+                if(deviceInfo!==undefined){d.deviceInfo=deviceInfo;d.deviceInfoUpdatedAt=now();}
                 // A delayed heartbeat from an old run must not pause a new run.
                 if (b.run === r.run && typeof b.paused === 'boolean') d.paused=b.paused;
                 let leaseRenewed = false;
@@ -225,6 +232,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         files['/shell.js']='shell.js';files['/platform.css']='platform.css';
         files['/export.js']='export.js';files['/export-worker.js']='export-worker.js';
         files['/ambient.js']='ambient.js';
+        files['/device-info.js']='device-info.js';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);

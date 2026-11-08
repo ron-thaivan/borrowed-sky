@@ -1,5 +1,6 @@
 import './motion.js';
 import {setRenderingMotion} from './ambient.js';
+import {createDeviceReporter} from './device-info.js';
 import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeInWorker} from './export.js';
@@ -10,6 +11,7 @@ import {resetNetwork} from './network.js';
 import {updateFailureDemo,resetFailureDemo} from './failure-demo.js';
 import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from './config.js';
 const $=id=>document.getElementById(id);
+const reportDevice=createDeviceReporter();
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
 let activeJob=null,polling=false,pollAgain=false;
 let connectionLost=false;
@@ -104,7 +106,8 @@ function makeImage(context,pixels,config){
 
 const say=(text,tone='info')=>{$('message').textContent=text;$('message').dataset.tone=tone;$('message').setAttribute('role',tone==='error'?'alert':'status');};
 async function api(action,body={}) {
- const res=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...session,...body}),signal:AbortSignal.timeout(10000)});
+ const info=['create','join','state'].includes(action)?{deviceInfo:reportDevice()}:{};
+ const res=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...session,...body,...info}),signal:AbortSignal.timeout(10000)});
  const data=await res.json();if(!res.ok)throw Object.assign(new Error(data.error),{status:res.status});return data;
 }
 let frameImages=new Map(),cachedImageBytes=0;
