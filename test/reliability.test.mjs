@@ -135,3 +135,30 @@ test('ready-room dashboard follows selected count without changing frozen config
  assert.equal(s.dashboard.remaining,240);assert.equal(s.dashboard.queued,240);
 });
 
+
+test('coordinator reserves queued and retained frames across rooms before starting',async t=>{
+ const {call,h,g,pixels,started}=await setup(t,{maxFrameBytes:128});
+ const second=await call('create');const other={code:second.code,id:second.id,secret:second.secret};
+ assert.equal((await call('start',other)).status,503);
+ assert.equal((await call('state',other)).run,null);
+ assert.equal((await call('state',h)).run,started.run);
+ for(let i=0;i<2;i++){const {job}=await call('claim',g);assert.equal((await call('result',{...g,...job,pixels,ms:1})).status,200);}
+ assert.equal((await call('start',other)).status,503); // Completed frames still occupy storage.
+ assert.equal((await call('start',h)).status,200); // Same room replaces its previous reservation.
+ assert.throws(()=>createCoordinator({maxFrameBytes:0}),/budget/);
+});
+
+test('host can return with original credentials after contributors finish without it',async t=>{
+ const {call,h,g,pixels,started,setTime}=await setup(t,{disconnectMs:7000});
+ const abandoned=(await call('claim',h)).job;
+ await call('leave',h);setTime(2000);
+ for(let i=0;i<2;i++){const {job}=await call('claim',g);await call('result',{...g,...job,pixels,ms:5});}
+ const guest=await call('state',g);
+ assert.equal(guest.completed,2);assert.equal(guest.recovered,1);
+ assert.equal(guest.devices.find(d=>d.id===h.id).online,false);
+ assert.equal((await call('frames',{...g,run:started.run})).status,403);
+ const returned=await call('state',h);assert.equal(returned.host,h.id);assert.equal(returned.completed,2);
+ assert.equal((await call('result',{...h,...abandoned,pixels,ms:5})).status,409);
+ assert.equal((await call('frames',{...h,run:started.run})).frames.length,2);
+ const next=await call('start',h);assert.notEqual(next.run,started.run);assert.equal(next.completed,0);
+});

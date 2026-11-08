@@ -6,7 +6,7 @@ import {palette,themes,getPalette,backgroundPresets} from '../public/renderer.js
 import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from '../public/config.js';
 
 // Exercise the actual browser controller with a minimal DOM; no browser dependency.
-async function browser() {
+async function browser(storage={getItem:()=>null,removeItem(){}}) {
  const elements=new Map();
  const results={shown:[],cleared:0,errors:[]};
  const context2d={createImageData:(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}),putImageData:()=>{},clearRect(){},drawImage(){}};
@@ -19,14 +19,15 @@ async function browser() {
   createResultViewer:()=>({clear(){results.cleared++;},busy(){},failed(message){results.errors.push(message);},show(value){results.shown.push(value);},setStarting(){}}),
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,AbortController,Blob,console,atob,btoa,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
-  window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null,removeItem(){}},
+  window:{addEventListener(){}},navigator:{},sessionStorage:storage,
   setTimeout(){},requestAnimationFrame:()=>1,cancelAnimationFrame(){},
   fetch:()=>{throw new Error('Unexpected network request');}});
  const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
  vm.runInContext(source.replace(/^import .*;\r?$/gm,''),context);
+ const restoredSession=vm.runInContext('session',context);
  vm.runInContext("session={id:'guest'}",context);
  const draw=state=>{context.snapshot=state;vm.runInContext('draw(snapshot)',context);};
- return {context,get,draw,results,run:code=>vm.runInContext(code,context)};
+ return {context,get,draw,results,restoredSession,run:code=>vm.runInContext(code,context)};
 }
 const snapshot=(config,overrides={})=>({code:'ROOM',host:'host',run:'first',revision:1,config,devices:[],frames:[],completed:0,computeMs:0,uploadBytes:0,recovered:0,started:null,finished:null,...overrides});
 
@@ -212,3 +213,42 @@ test('reported worker errors pause contribution instead of repeatedly rendering 
  assert.equal(run('paused'),true);assert.equal(claims,1);assert.match(get('message').textContent,/Worker failed/);
 });
 
+
+test('worker failure remains locally stopped when coordinator pause fails, until explicit resume',async()=>{
+ for(const kind of ['reported','messageerror','startup']){
+  const {draw,run,context,get}=await browser();
+  const config={width:8,height:8,count:2,fps:20,theme:'sunny'};
+  const active=snapshot(config,{started:1000,devices:[{id:'guest',paused:false}]});draw(active);
+  let claims=0,allowPause=false;
+  context.fetch=async(url)=>{
+   if(url.endsWith('/pause')&&!allowPause)throw Error('Offline');
+   return {ok:true,json:async()=>url.endsWith('/claim')?(claims++,{job:{...config,index:0,token:'lease',run:'first'}}):{...active,revision:3}};
+  };
+  if(kind==='startup')context.Worker=class{constructor(){throw Error('Cannot start worker');}};
+  await run('contribute()');
+  if(kind==='reported')await run("worker.onmessage({data:{error:'Renderer failed'}})");
+  if(kind==='messageerror'){run('worker.onmessageerror()');await new Promise(r=>setImmediate(r));}
+  draw({...active,revision:2});await run('contribute()');
+  assert.equal(claims,1);assert.equal(run('workerFault'),true);assert.equal(run('paused'),true);
+  assert.equal(run('activeJob'),null);assert.match(get('pause').textContent,/Resume/);
+  if(kind==='startup')context.Worker=class{postMessage(){}terminate(){}};
+  allowPause=true;await run('setPaused(false)');await new Promise(r=>setImmediate(r));
+  assert.equal(run('workerFault'),false);assert.equal(claims,2);
+  run('workerFault=true');draw({...active,run:'second',revision:4});
+  assert.equal(run('workerFault'),false);assert.equal(run('paused'),false);
+ }
+});
+
+test('invalid saved credentials and unavailable storage do not break entering or leaving',async()=>{
+ for(const value of ['{}','false','{"code":"ROOM","id":3,"secret":"x"}','not JSON']){
+  const {restoredSession}=await browser({getItem:()=>value});assert.equal(restoredSession,null);
+ }
+ const storage={getItem(){throw Error('Blocked');},setItem(){throw Error('Blocked');},removeItem(){throw Error('Blocked');}};
+ const {context,run,get,restoredSession}=await browser(storage);assert.equal(restoredSession,null);
+ const config={width:8,height:8,count:2,fps:20,theme:'sunny'};
+ context.fetch=async()=>({ok:true,json:async()=>snapshot(config,{id:'host',secret:'secret',run:null})});
+ await run("enter('create')");
+ assert.equal(run('session.id'),'host');assert.equal(get('room').hidden,false);
+ assert.match(get('message').textContent,/storage is unavailable/);
+ await run("$('leave').onclick()");assert.equal(run('session'),null);assert.equal(get('lobby').hidden,false);
+});

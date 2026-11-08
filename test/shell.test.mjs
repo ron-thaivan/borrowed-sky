@@ -6,7 +6,7 @@ import vm from 'node:vm';
 function fixture(){
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{textContent:'',dataset:{},hidden:false});return elements.get(id);};
- const source=readFileSync(new URL('../public/shell.js',import.meta.url),'utf8').replace(/^import .*;\n/,'').replaceAll('export function','function');
+ const source=readFileSync(new URL('../public/shell.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/,'').replaceAll('export function','function');
  const context=vm.createContext({document:{getElementById:element},themes:[{id:'sunny',name:'Sunny Sky'},{id:'night',name:'Night Sky'}]});
  vm.runInContext(source,context);
  const config={width:192,height:128,count:120,fps:20,theme:'sunny'};

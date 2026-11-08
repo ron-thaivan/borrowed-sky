@@ -30,13 +30,14 @@ function readBody(req, limit) {
   });
 }
 
-export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, maxRequestBytes=HARD_MAX_REQUEST_BYTES, now=Date.now}={}) {
+export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, maxRequestBytes=HARD_MAX_REQUEST_BYTES, maxFrameBytes=256*1024*1024, now=Date.now}={}) {
   const renderingConfig = validateConfig(config);
   const uploadLimit = Math.max(frameRequestLimit(renderingConfig),frameRequestLimit({width:576,height:384}));
   if (!Number.isInteger(maxRequestBytes) || maxRequestBytes < uploadLimit || maxRequestBytes > HARD_MAX_REQUEST_BYTES) {
     throw new Error('Request limit must accommodate configured frames and stay within 8 MiB');
   }
   if (!(disconnectMs > 0) || !(leaseMs > 0)) throw new Error('Timeouts must be positive');
+  if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes < 1) throw new Error('Frame storage budget must be a positive integer');
   const rooms = new Map();
   // Bounded, public activity records: never expose device secrets or lease tokens.
   function activity(room,type,device,details={}) {
@@ -161,6 +162,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
               case '/api/start':
                 if (b.id !== r.host) throw fail('Only the host can start a render.',403);
                 if (r.started !== null && r.finished === null) throw fail('A render is already running.');
+                // Reserve the entire run before accepting it, including queued frames.
+                // Replacing this room's completed run releases its old reservation.
+                const retained=[...rooms.values()].reduce((bytes,room)=>bytes+(room!==r&&room.frames.length?room.config.width*room.config.height*room.config.count:0),0);
+                if(retained+r.selectedConfig.width*r.selectedConfig.height*r.selectedConfig.count>maxFrameBytes)throw fail('Coordinator frame storage budget is full. Use a smaller workload or save results and restart the coordinator.',503);
                 r.benchmarkConditions=benchmarkConditions(b.benchmark);
                 r.config=Object.freeze({...r.selectedConfig});r.recentCompletions=[];
                 r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;r.failureNotice=null;

@@ -12,6 +12,7 @@ const $=id=>document.getElementById(id);
 let session=null,state=null,worker=null,busy=false,paused=false,joining=false,generation=0,downloadUrl=null,assembledRun=null,assembling=false,animation=null;
 let activeJob=null,polling=false,pollAgain=false;
 let connectionLost=false;
+let workerFault=false;
 const ctx=$('preview').getContext('2d');
 let savingTheme=false,thumbnailsStarted=false;
 let pausePending=false;
@@ -132,7 +133,7 @@ function updatePauseButton(){$('pause').textContent=paused?'Resume contribution'
 function draw(s){
  if(state?.code===s.code&&s.revision<state.revision)return;
  if(state?.run!==s.run){
-  resetWorker();stopAnimation();paused=false;updatePauseButton();
+  resetWorker();stopAnimation();workerFault=false;paused=false;updatePauseButton();
   frameImages.clear();cachedImageBytes=0;
   $('download').hidden=true;assembledRun=null;assemblyAttempt=null;
   if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}
@@ -141,7 +142,7 @@ function draw(s){
  configurePreview(displayConfig);
  if(state?.run!==s.run){ctx.clearRect(0,0,s.config.width,s.config.height);$('preview-label').textContent='WAITING FOR FIRST FRAME';}
  state=s;const isHost=session.id===s.host;
- const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=!!me.paused;
+ const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=workerFault||!!me.paused;
  $('pause').disabled=pausePending;
  $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
  if(me?.simulatedFailure&&(busy||activeJob))resetWorker();
@@ -197,23 +198,32 @@ async function assemble(run){
  }catch(e){if(current()){say('Assembly failed: '+e.message,'error');resultViewer.failed('Could not assemble the GIF: '+e.message);}}finally{if(exportController===controller)exportController=null;if(assembling===token)assembling=false;}
 }
 async function contribute(){
- if(!session||paused||busy||!state?.started||state.finished||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
+ if(!session||workerFault||paused||busy||state?.started==null||state.finished!==null||state.devices.some(d=>d.id===session.id&&d.simulatedFailure))return;
  busy=true;const gen=generation;
  try {const {job}=await api('claim',{run:state.run});if(gen!==generation)return;if(!job){busy=false;return;}
  activeJob=job;
- worker=new Worker('/worker.js',{type:'module'});
+ try{worker=new Worker('/worker.js',{type:'module'});}catch(e){await failWorker(e.message);return;}
  worker.onmessage=async({data})=>{
   if(gen!==generation)return;worker?.terminate();worker=null;
-  try{if(data.error){await setPaused(true);throw new Error('Worker failed: '+data.error);}showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
+  if(data.error){await failWorker(data.error);return;}
+  try{showFrame(data.pixels,job);$('preview-label').textContent=`LOCAL FRAME ${job.index+1} / ${job.count}`;await api('result',{index:job.index,run:job.run,token:job.token,pixels:base64(data.pixels),ms:data.ms});}
   catch(e){if(gen===generation&&e.status!==409)say(e.message,'error');}finally{if(gen===generation){activeJob=null;busy=false;contribute();}}
  };
- worker.onerror=e=>{if(gen!==generation)return;resetWorker();void setPaused(true).then(()=>say('Worker failed: '+e.message));};worker.postMessage(job);
+ worker.onerror=e=>{if(gen===generation)void failWorker(e.message);};
+ worker.onmessageerror=()=>{if(gen===generation)void failWorker('Could not receive the rendered frame');};
+ try{worker.postMessage(job);}catch(e){await failWorker(e.message);}
  }catch(e){if(gen===generation){busy=false;say(e.message,'error');}}
+}
+async function failWorker(message){
+ const owner=session,run=state?.run;
+ resetWorker();workerFault=true;paused=true;updatePauseButton();
+ await setPaused(true);
+ if(session===owner&&state?.run===run)say('Worker failed: '+message+'. This laptop is stopped. Resume contribution to retry.','error');
 }
 async function enter(action){
  if(joining)return;joining=true;$('create').disabled=$('join').disabled=true;
  $(action==='create'?'create':'join').textContent=action==='create'?'Creating room…':'Joining room…';say(action==='create'?'Creating your rendering room…':'Connecting to your team…');
- try{const s=await api(action,{name:$('name').value.trim(),code:$('code').value.trim().toUpperCase()});session={code:s.code,id:s.id,secret:s.secret};sessionStorage.setItem('borrowed-sky',JSON.stringify(session));$('lobby').hidden=true;$('room').hidden=false;say('');draw(s);$('overview').scrollIntoView({block:'start'});contribute();}
+ try{const s=await api(action,{name:$('name').value.trim(),code:$('code').value.trim().toUpperCase()});session={code:s.code,id:s.id,secret:s.secret};let stored=true;try{sessionStorage.setItem('borrowed-sky',JSON.stringify(session));}catch{stored=false;}$('lobby').hidden=true;$('room').hidden=false;say(stored?'':'Browser storage is unavailable. Keep this tab open; refreshing will lose your session.');draw(s);$('overview').scrollIntoView({block:'start'});contribute();}
  catch(e){say(e.message,'error');}finally{joining=false;$('create').disabled=$('join').disabled=false;$('create').textContent='Create a room ↗';$('join').textContent='Join room →';}
 }
 async function poll(){
@@ -248,6 +258,7 @@ async function setPaused(value){
  const id=session.id,run=state?.run??null,previous=paused;pausePending=true;paused=value;$('pause').disabled=true;$('host-pause').disabled=true;
  try{
   const s=await api('pause',{paused:value,run});if(session?.id!==id)return;
+  if(state?.run===run&&!value)workerFault=false;
   pausePending=false;draw(s);
   say(value?'Pausing after the current frame. This laptop stays connected.':'Contribution resumed.');
  }catch(e){if(session?.id===id){if(state?.run===run)paused=previous;say('Could not update pause state: '+e.message,'error');}}
@@ -255,13 +266,13 @@ async function setPaused(value){
 }
 $('pause').onclick=()=>setPaused(!paused);
 $('host-pause').onclick=()=>setPaused(!paused);
-$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();resetBenchmarks();session=null;state=null;sessionStorage.removeItem('borrowed-sky');stopAnimation();frameImages.clear();cachedImageBytes=0;paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}if(!session)say('You left the room. Unfinished work is available to other devices.');};
+$('leave').onclick=async()=>{const old=session;resetWorker();resetNetwork();resetFailureDemo();resetBenchmarks();session=null;state=null;try{sessionStorage.removeItem('borrowed-sky');}catch{}stopAnimation();frameImages.clear();cachedImageBytes=0;workerFault=false;paused=false;$('pause').textContent='Pause my contribution';$('room').hidden=true;$('lobby').hidden=false;$('download').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;assembledRun=null;try{await api('leave',old);}catch{}if(!session)say('You left the room. Unfinished work is available to other devices.');};
 $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',session.code);if(['localhost','127.0.0.1'].includes(location.hostname)){say(`Room ${session.code}. On other laptops, open the server’s Wi-Fi address printed in its terminal, then enter this code.`);return;}try{await navigator.clipboard.writeText(link.href);say('Invite link copied.');}catch{say('Share this invite: '+link.href);}};
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
 const leaveRoom=$('leave').onclick;
 $('leave').onclick=()=>{sessionShell(false);connectionLost=false;return leaveRoom();};
 $('session-recover').onclick=$('leave').onclick;
-try{session=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(session){$('lobby').hidden=true;$('room').hidden=false;sessionShell(true);}}catch{session=null;}
+try{const saved=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(saved&&['code','id','secret'].every(key=>typeof saved[key]==='string'&&saved[key].length)){session={code:saved.code,id:saved.id,secret:saved.secret};$('lobby').hidden=true;$('room').hidden=false;sessionShell(true);}}catch{session=null;}
 tick();
 

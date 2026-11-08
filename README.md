@@ -50,7 +50,9 @@ The host can configure/start renders, collect/export frames, view benchmark hist
 
 The coordinator enforces host identity and a private session token on authenticated endpoints. Assignment proofs include the run, frame and lease token. The room code lets someone join; it does not confer host authority. Keep this on a trusted network: there are no user accounts, encryption, malicious-worker validation or rate limiting.
 
-Credentials survive refresh in session storage for that tab. Keep the original host tab available: a new tab joining with the code is a contributor, not a replacement host. There is no host transfer. If the host browser disconnects while the Node process remains running, other devices can finish and the same host session can return to collect the result. If the coordinator process or its network disappears, rendering cannot complete until it is reachable; a process restart loses all room state.
+Credentials survive refresh in session storage for that tab. Keep the original host tab available: a new tab joining with the code is a contributor, not a replacement host. There is no host transfer. If storage is blocked, joining still works with a warning, but refreshing loses that session. Malformed saved credentials are ignored. If the host browser disconnects while the Node process remains running, other devices can finish and the same host session can return to collect the result. If the coordinator process or its network disappears, rendering cannot complete until it is reachable; a process restart loses all room state.
+
+A renderer startup, execution or message-delivery failure stops that laptop locally even if its pause request cannot reach the server. Other devices continue, and the abandoned lease expires normally. Use **Resume contribution** to retry, or start a new run to reset the fault. Final animation playback does not auto-start with reduced motion enabled; explicit Play remains available.
 
 ### Recovery and failure demonstration
 
@@ -70,7 +72,7 @@ To demonstrate recovery, start a render with another contributor, open Host cont
 | Accepted frame payload | Raw indexed pixel bytes only; excludes base64, HTTP/polling, retries, collection and GIF bytes. |
 | Participating devices | Browser identities that delivered at least one accepted frame. This does not prove separate physical laptops. |
 
-Speedup is **single-device wall time / multi-device wall time**. Time reduction is **(1 − multi-device wall time / single-device wall time) × 100%**; it can be negative. Summed worker time divided by wall time is never used as speedup.
+Speedup is **single-device wall time / multi-device wall time**. Time reduction is **(1 − multi-device wall time / single-device wall time) × 100%**; it can be negative. Total Worker Render Time divided by wall time is never used as speedup.
 
 Expand **Set up a comparable benchmark** before a measured run. Enter a test series and attest consistent coordinator, network, power/browser settings, background load and warm-up policy. A comparison requires the same complete configuration and renderer workload version, the same confirmed series, positive wall durations, the baseline identity in the multi-device run and no recovered assignments. Conditions are host-attested, not automatically verified. Unconfirmed runs still record real measurements without a speedup claim. Device-count cards can contain different workloads; chart bars alone do not establish comparability.
 
@@ -82,7 +84,7 @@ History retains the latest 50 completed runs per room in memory. Download measur
 
 The largest UI preset (576 × 384 × 240) contains **53,084,160 indexed bytes (50.625 MiB)**. Base64 upload and collection each represent about **67.5 MiB** before HTTP and JSON overhead. The fixed-width GIF encoder produces approximately **57.47 MiB** for this workload regardless of image compressibility. This is an 18× pixel workload relative to the default, not a promise of 18× wall time.
 
-Each rendering worker computes one frame at a time and transfers its indexed output. The renderer caches shared noise lattice values within a frame without changing Float64 interpolation order. Accepted frames remain in coordinator memory until the next render or server restart. Retained rooms multiply memory use; the 100-room cap is not a promise that 100 maximum-size renders fit in RAM.
+Each rendering worker computes one frame at a time and transfers its indexed output. The renderer caches shared noise lattice values within a frame without changing Float64 interpolation order. Accepted frames remain in coordinator memory until the next render or server restart. The coordinator reserves each run's full indexed size before starting, enforcing a shared **256 MiB frame-storage budget** across active and completed rooms. Replacing a completed run reuses that room's reservation. A start exceeding the budget is rejected without disturbing existing runs; save needed results before restarting to clear rooms. This budget excludes JSON, base64, metadata and runtime overhead, so it is not a process-RAM ceiling. The 100-room cap is not a promise that 100 maximum-size renders fit in RAM.
 
 The host collects frames in batches targeting 2 MiB of base64 data (a single operator-sized frame may exceed that), validates run/configuration/order and decodes into indexed arrays. GIF encoding runs in a separate worker; input and output buffers are transferred, not cloned. Leaving or starting a new run cancels export. Indexed frames are retained for playback, the decoded RGBA cache is capped at 24 MiB, and leaving clears it. The final Blob, encoder output, indexed data and browser overhead can still coexist: **peak process memory is larger than raw payload and is browser-dependent**. Rehearse the maximum preset on the actual host before using it live.
 
@@ -91,6 +93,8 @@ The encoder keeps its existing palette, ordered frames, fixed-width LZW and fram
 Interactive edits stay within the existing 64 MiB indexed-pixel budget. Advanced `RENDER_CONFIG` JSON overrides are accepted at server startup within existing bounds (dimensions ≤2048, frames ≤600, FPS ≤100, total indexed pixels ≤128 MiB); they are not all UI presets or physical-device-validated workloads. The encoder rejects output over 160 MiB. Upload requests are byte-counted and capped for configured/preset dimensions plus 16 KiB metadata, with an 8 MiB absolute ceiling. Non-upload request bodies are capped at 16 KiB. Limits were not increased.
 
 ## Tests and CI
+
+See [the final reliability review](docs/REVIEW.md) for the dated review findings, verification scope and outstanding rehearsal checks.
 
 ```sh
 npm test

@@ -13,6 +13,8 @@ export function createResultViewer({imageFor,startNew,retry}){
  <dl id="result-stats" class="result-stats"></dl><details><summary>Full rendering configuration</summary><pre id="result-config"></pre></details></div>
  <button id="result-retry" hidden>Retry GIF assembly</button><div class="result-next"><p>Keep the room and your crew. Choose settings above, or render the same sky again.</p><button id="result-new">Start a new render ↗</button></div>`;
  let player=null,currentFrame=0;
+ const reducedMotion=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion: reduce)'):null;
+ reducedMotion?.addEventListener('change',()=>{if(reducedMotion.matches)player?.pause();});
  const canvas=$('result-preview'),context=canvas.getContext('2d');
  function clear(){player?.dispose();player=null;root.hidden=true;$('result-content').hidden=true;$('result-retry').hidden=true;$('result-download').removeAttribute('href');context.clearRect(0,0,canvas.width,canvas.height);canvas.width=1;canvas.height=1;}
  $('result-play').onclick=()=>player?.play();$('result-pause').onclick=()=>player?.pause();$('result-restart').onclick=()=>player?.restart();
@@ -41,7 +43,7 @@ export function createResultViewer({imageFor,startNew,retry}){
    player=createPlayback({count:frames.length,fps:config.fps,onFrame:index=>context.putImageData(imageFor(frames[index],config),0,0),onState:s=>{
     currentFrame=s.frame;$('result-frame').value=s.frame;$('result-position').textContent=`${s.frame+1} / ${frames.length}`;
     $('result-play').disabled=s.playing;$('result-pause').disabled=!s.playing;$('result-prev').disabled=s.frame===0;$('result-next').disabled=s.frame===frames.length-1;
-   }});player.setVisible(!document.hidden);player.play();
+   }});player.setVisible(!document.hidden);if(!reducedMotion?.matches)player.play();
   }
  };
 }

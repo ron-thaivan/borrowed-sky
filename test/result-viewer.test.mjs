@@ -10,7 +10,9 @@ test('result viewer uses completed metadata, wires controls, and clears old down
  const element=()=>({children:[],style:{},parentElement:{style:{}},value:'',hidden:false,checked:false,
   getContext:()=>({clearRect(){},putImageData:image=>painted.push(image)}),removeAttribute(key){delete this[key];},append(...items){this.children.push(...items);},replaceChildren(...items){this.children=items;}});
  const get=key=>{if(!elements.has(key))elements.set(key,element());return elements.get(key);};
+ const motion={matches:false,addEventListener(type,handler){this.change=handler;}};
  const context=vm.createContext({document:{hidden:false,getElementById:get,createElement:element,addEventListener(){}},themes,
+  matchMedia:()=>motion,
   createPlayback:options=>createPlayback({...options,now:()=>0,request:fn=>{callbacks.set(++id,fn);return id;},cancel:id=>callbacks.delete(id)})});
  const source=await readFile(new URL('../public/result-viewer.js',import.meta.url),'utf8');
  vm.runInContext(source.replace(/^import .*;\r?$/gm,'').replace('export function','function'),context);
@@ -33,4 +35,10 @@ test('result viewer uses completed metadata, wires controls, and clears old down
  get('result-new').onclick();assert.equal(starts,1);
  viewer.clear();assert.equal(callbacks.size,0);assert.equal(get('final-result').hidden,true);assert.equal(get('result-download').href,undefined);
  viewer.failed('Transfer failed');assert.equal(get('result-retry').hidden,false);get('result-retry').onclick();assert.equal(retries,1);
+ motion.matches=true;
+ viewer.show({frames,config,snapshot:{started:0,finished:1000,computeMs:30,devices:[]},url:'blob:reduced',bytes:1024});
+ assert.equal(callbacks.size,0,'Reduced motion prevents autoplay');
+ get('result-play').onclick();assert.equal(callbacks.size,1,'Explicit playback remains available');
+ motion.change();assert.equal(callbacks.size,0,'Enabling reduced motion stops playback');
+ viewer.clear();
 });
