@@ -1,0 +1,78 @@
+/* Shared surface and type hierarchy for independently maintained feature views. */
+.computing-network,.live-dashboard,.benchmarks,.theme-panel,.final-result,.failure-demo{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 24px #03091416;font-family:inherit;margin:0 0 28px;color:#e4edf8;min-width:0}.live-dashboard,.benchmarks,.final-result{padding:24px}.network-heading{padding:24px}.network-heading h3,.dashboard-heading h3,.benchmarks h3,.result-heading h3{font-family:inherit;font-size:24px;line-height:1.25;font-weight:650;letter-spacing:-.6px}.network-heading .eyebrow,.dashboard-heading .eyebrow,.benchmarks .eyebrow,.final-result .eyebrow{font-size:9px;letter-spacing:1.6px;color:#80c5da}.network-heading p:not(.eyebrow),.dashboard-heading p,.benchmarks>p{font-size:12px;color:#90a9c2;line-height:1.75}.network-live,.live-indicator{font-size:10px;border-radius:8px;padding:8px 11px}.network-stats{background:#102137}.network-stats>div{padding:15px 20px}.network-stats strong{font-size:25px}.network-stats span{font-size:9px}.network-stage{background-color:#0a1729;max-height:510px}.network-bottom,.network-history{background:#0e1d30;padding:18px 24px}.network-history{grid-template-columns:110px 1fr}.network-history li{font-size:10px}.dashboard-stats{gap:9px}.dashboard-stat{background:#13243a;padding:15px 12px;border-radius:10px}.dashboard-stat strong{font-size:28px}.dashboard-stat span{font-size:10px;margin-bottom:10px}.dashboard-stat small{font-size:9px}.dashboard-heading{margin-bottom:20px}.dashboard-section,.dashboard-methods{border-radius:12px;background:#101f33}.dashboard-section h4{font-size:15px}.live-dashboard th{font-size:9px;padding:12px}.live-dashboard td{font-size:11px;padding:13px 12px}.dashboard-bottom{grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr)}.dashboard-methods{padding:20px}.theme-grid{gap:12px}.theme-card{border-radius:12px;border:1px solid #304560;background:#112138;padding:12px}.theme-card:has(input:checked){border-color:#6cdbeb;background:#163247;box-shadow:0 0 0 1px #6cdbeb33}.theme-card:hover{border-color:#527b98}.theme-card strong{font-size:13px;color:#e2efff}.theme-card span{font-size:11px;color:#8da9c3}.theme-card input{accent-color:#67d9e5}.theme-card canvas{border-radius:7px;background:#1a2e43;image-rendering:pixelated}.theme-panel legend{font-size:12px;color:#97b4cf}.workload-controls{gap:16px}.workload-controls select{background:#0a1729;color:#d6e9fa;border-color:#344e69;font-size:12px}.workload-controls select:disabled{background:#142337;color:#93a9c0}.workload-summary{background:#14283e;color:#bad3e9;border:1px solid #2c465f;font-size:12px}.workload-warning{color:#a0b5cc;font-size:11px}.benchmarks fieldset{border:0;padding:0;margin:16px 0}.benchmark-protocol{padding:16px 18px;background:#102137;border:1px solid #2c435e;border-radius:10px;margin:20px 0}.benchmark-protocol>summary{font-size:12px;font-weight:600}.benchmarks legend{padding:0 0 12px;font-size:12px}.benchmarks .bench-confirm{font-size:11px}.benchmarks fieldset p{font-size:11px}.benchmarks input:not([type=checkbox]),.benchmarks select{font-size:12px;background:#0a1729;border-color:#344e69}.bench-cards{gap:10px}.bench-cards article,.bench-charts article{background:#122239;border-color:#283e58;border-radius:12px;padding:16px}.bench-cards span{font-size:11px}.bench-cards strong{font-size:23px}.bench-cards small{font-size:10px}.benchmarks h4{font-size:14px}.benchmarks th{font-size:10px}.benchmarks td{font-size:11px;white-space:normal;min-width:95px}.benchmarks td:first-child{min-width:220px}.benchmarks td:last-child{min-width:175px}.benchmarks table{min-width:1000px}.bench-definitions{gap:18px;font-size:11px}.benchmarks button,.failure-demo button,.final-result button{font-family:inherit;font-weight:600;font-size:12px;line-height:1.4;border-radius:9px;min-height:42px;box-shadow:none}.failure-demo{padding:20px 24px}.failure-heading h3{font-size:20px}.failure-heading .eyebrow{font-size:9px}.failure-demo p{font-size:11px}.failure-demo #failure-trigger{color:#332017;background:#edb684}.host-summary{margin-bottom:16px}.result-heading h3{font-size:28px}.result-heading>span{font-size:11px;border-radius:8px}.result-canvas{max-width:880px}.result-download{background:#123345;border-color:#2d6878;border-radius:12px}.result-download strong{font-size:20px}.result-download p{font-size:12px}.result-stats>div{background:#13243a;border-color:#2a405b}.result-stats dt{font-size:11px}.result-stats dd{font-size:23px}.final-result pre{font-size:12px}.final-result details{font-size:12px}.result-next p{font-size:12px}.result-next button{flex-shrink:0}.result-note{font-size:11px}.result-controls{font-size:12px}.result-controls select{font-size:12px}.result-scrub{font-size:12px}.result-scrub input{min-height:20px}.final-result a.button{font-size:13px;border-radius:10px}.result-scrub input{width:auto}.bench-scroll{scrollbar-color:#375473 #102037}.final-result,.host-summary{scroll-margin-top:110px}
+@media(max-width:1200px){.dashboard-stats{grid-template-columns:repeat(3,1fr)}.dashboard-bottom{grid-template-columns:1fr}.bench-charts{grid-template-columns:1fr}.bench-cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.computing-network,.live-dashboard,.benchmarks,.theme-panel,.final-result,.failure-demo{border-radius:13px;margin-bottom:20px}.live-dashboard,.benchmarks,.final-result,.network-heading,.failure-demo{padding:18px}.network-heading h3,.dashboard-heading h3,.benchmarks h3{font-size:22px}.network-stage{max-height:390px}.network-bottom,.network-history{padding:16px}.network-history{grid-template-columns:1fr}.network-stats>div{padding:12px 8px}.network-stats strong{font-size:22px}.network-stats span{font-size:8px}.dashboard-stat{padding:12px 10px}.dashboard-stat strong{font-size:25px}.dashboard-stats{grid-template-columns:repeat(2,1fr)}.theme-grid{gap:9px}.theme-card{padding:9px}.bench-definitions{grid-template-columns:1fr;gap:0}.bench-cards strong{font-size:21px}.result-controls{gap:8px}.result-controls button{padding:10px 12px}.result-canvas{margin-top:18px}.result-heading h3{font-size:25px}.result-stats dd{font-size:21px}.result-next{align-items:stretch}.result-next button{width:100%}.network-live,.live-indicator{white-space:normal}.final-result,.host-summary{scroll-margin-top:170px}}
+
+
+/* Editorial display typography: oversized, tight, bold capitals inspired by the visual reference.
+   Keep operational labels and data at their compact reading sizes. No remote font dependency. */
+:root{--display-font:Arial,Helvetica,sans-serif;--display-size:clamp(32px,4.3vw,64px)}
+.intro h1,.studio-heading h2,.room-heading h2,
+.network-heading h3,.dashboard-heading h3,.bench-heading h3,
+.theme-panel .panel-title h3,.host-summary .panel-title h3,
+.failure-heading h3,.result-heading h3{
+ font-family:var(--display-font);font-size:var(--display-size);font-weight:750;
+ line-height:.98;letter-spacing:-.055em;text-transform:uppercase;
+ color:#f4f7fc;text-wrap:balance;overflow-wrap:normal;margin:0 0 18px;
+}
+.intro h1{font-size:clamp(48px,6.2vw,88px);line-height:.95;margin:24px 0}
+.studio-heading h2,.room-heading h2{font-size:clamp(36px,4.5vw,68px)}
+.network-heading,.dashboard-heading,.bench-heading,.result-heading,
+.theme-panel>.panel-title,.host-summary>.panel-title,.failure-heading,.room-heading{
+ align-items:flex-start;gap:20px;flex-wrap:wrap;
+}
+.network-heading>div:first-child,.dashboard-heading>div:first-child,
+.bench-heading>div:first-child,.result-heading>div:first-child,
+.theme-panel>.panel-title>div:first-child,.host-summary>.panel-title>div:first-child,
+.failure-heading>div:first-child,.room-heading>div:first-child{flex:1 1 480px;min-width:0}
+.network-heading h3,.dashboard-heading h3,.bench-heading h3,
+.theme-panel .panel-title h3,.host-summary .panel-title h3,.result-heading h3{max-width:16ch}
+.failure-heading h3{font-size:clamp(30px,3.3vw,48px)}
+.network-live,.live-indicator,.bench-heading>button,.result-heading>span,
+.theme-panel>.panel-title>.badge,.host-summary>.panel-title>.badge,
+.failure-heading>button,.room-heading>button{flex-shrink:0}
+.steps h2,.lobby-action h3,.dashboard-section h4,.benchmarks h4{
+ font-family:var(--display-font);font-weight:700;letter-spacing:-.035em;
+}
+.network-heading .eyebrow,.dashboard-heading .eyebrow,.bench-heading .eyebrow,
+.theme-panel .eyebrow,.host-summary .eyebrow,.result-heading .eyebrow{margin-bottom:16px}
+@media(max-width:760px){
+ :root{--display-size:clamp(30px,7.8vw,48px)}
+ .studio-heading h2,.room-heading h2{font-size:clamp(34px,8.3vw,52px)}
+ .intro h1{font-size:clamp(44px,10vw,68px)}
+ .network-heading,.dashboard-heading,.bench-heading,.result-heading,
+ .theme-panel>.panel-title,.host-summary>.panel-title,.failure-heading,.room-heading{gap:12px;flex-direction:column}
+ .network-heading>div:first-child,.dashboard-heading>div:first-child,
+ .bench-heading>div:first-child,.result-heading>div:first-child,
+ .theme-panel>.panel-title>div:first-child,.host-summary>.panel-title>div:first-child,
+ .failure-heading>div:first-child,.room-heading>div:first-child{flex:0 1 auto;width:100%}
+ .network-heading h3,.dashboard-heading h3,.bench-heading h3,.result-heading h3,
+ .theme-panel .panel-title h3,.host-summary .panel-title h3,.failure-heading h3{margin-bottom:12px}
+}
+
+
+
+
+/* Automatic cloud drift and floating homepage illustration. */
+.intro{position:relative;isolation:isolate;overflow:hidden}
+.hero-copy,.hero-art{position:relative;z-index:1}
+.sky-drift{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.drift-cloud{position:absolute;display:block;width:180px;height:84px;background:#a8e6f2;clip-path:polygon(0 55%,12% 55%,12% 32%,27% 32%,27% 12%,57% 12%,57% 28%,76% 28%,76% 45%,90% 45%,90% 65%,100% 65%,100% 86%,0 86%);pointer-events:none;animation:sky-drift 10s ease-in-out infinite alternate;animation-play-state:paused}
+.cloud-one{left:1%;top:8%;opacity:.16}
+.cloud-two{left:36%;top:66%;width:230px;height:110px;opacity:.12}
+.cloud-three{right:7%;top:2%;width:120px;height:60px;opacity:.17}
+.art-window{position:relative;overflow:hidden}.art-drift{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.cloud-near{left:6%;top:62%;width:46%;height:28%;opacity:.65;background:#d4f0ff}
+.cloud-far{left:49%;top:13%;width:30%;height:19%;opacity:.4;background:#bfdef5}
+#landing-nav{align-items:center}#motion-toggle{font-size:10px;min-height:32px;padding:6px 10px;white-space:nowrap}
+@media(max-width:760px){#landing-nav{gap:12px;flex-wrap:wrap;justify-content:flex-end}.cloud-one{width:120px;height:60px}.cloud-two{left:8%;top:44%}}
+
+.cloud-two{animation-duration:14s;animation-delay:-6s}.cloud-three{animation-duration:12s;animation-delay:-3s}.cloud-near{animation-duration:9s;animation-delay:-2s}.cloud-far{animation-duration:13s;animation-delay:-7s}
+html[data-decorative-motion=running] .drift-cloud{animation-play-state:running}
+@keyframes sky-drift{from{transform:translate3d(-32px,8px,0)}to{transform:translate3d(72px,-14px,0)}}
+@media(prefers-reduced-motion:reduce){html[data-motion-allowed=true] .drift-cloud{animation-name:sky-drift!important;animation-duration:10s!important;animation-timing-function:ease-in-out!important;animation-iteration-count:infinite!important;animation-direction:alternate!important;animation-play-state:paused!important}html[data-motion-allowed=true][data-decorative-motion=running] .drift-cloud{animation-play-state:running!important}}
+
+.hero-art{animation:panel-float 6s ease-in-out infinite alternate;animation-play-state:paused}
+html[data-decorative-motion=running] .hero-art{animation-play-state:running}
+@keyframes panel-float{from{transform:translateY(12px) rotate(-1deg)}to{transform:translateY(-18px) rotate(1.5deg)}}
+@media(prefers-reduced-motion:reduce){html[data-motion-allowed=true] .hero-art{animation:panel-float 6s ease-in-out infinite alternate!important;animation-play-state:paused!important}html[data-motion-allowed=true][data-decorative-motion=running] .hero-art{animation-play-state:running!important}}

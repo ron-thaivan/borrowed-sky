@@ -1,58 +1,147 @@
 # Borrowed Sky
 
-A small, real browser rendering cloud for HackRPI’s **In the Clouds** theme. One Node coordinator distributes independent frames of a procedural pixel-art cloud animation to browser Web Workers. No dependencies and no build step.
+Borrowed Sky distributes procedural pixel-art cloud rendering across browsers on a shared network. A Node.js coordinator assigns independent frames, accepts authenticated results and recovers unfinished assignments. The host collects the ordered frames and exports a looping GIF.
 
-## Run
+There is no build step, database, external font service or runtime package dependency. This is a trusted-network demonstration, not a production compute service.
 
-Install Node.js 20+ on the **coordinator laptop only**, then:
+## Start
 
-```sh
-node server.mjs
-```
-
-Open `http://127.0.0.1:3000` on that laptop. On other devices, open the **Same Wi-Fi** URL printed in the terminal (for example `http://192.168.1.12:3000`). Allow Node through the host’s firewall on the private network if prompted. Participants need only a modern browser. Override the port with the `PORT` environment variable.
-
-Campus guest Wi-Fi may isolate clients. Use a shared hotspot or a reachable Node host if devices cannot connect. This server listens on all interfaces; only use it with trusted hackathon participants. Rooms and frames live in memory and are lost when the server restarts.
-
-## Three-laptop demo
-
-1. Host creates a room, notes its six-character code, and starts rendering.
-2. Two other laptops open the same server address and join the room. Watch them claim different frames.
-3. Close a contributor’s tab while its row has an assigned frame. For a hard-disconnect demo, turn off its Wi-Fi instead. Its work returns to the queue immediately on graceful leave, or after seven seconds without a heartbeat.
-4. Watch the reassignment count and let the remaining laptops finish.
-5. The host automatically collects all 120 frames, plays the six-second loop, and offers **Download GIF**.
-
-Keep the host tab open for collection. Reloading a tab restores its session in the same browser tab. The **Pause my contribution** button finishes the current frame, then stops claiming new ones; it is not a disconnect simulation. Do not use duplicated tabs as evidence of multiple physical devices. Separate browsers can test coordination locally but share the same machine’s compute resources.
-
-## Architecture
-
-- `server.mjs`: HTTP static server and in-memory room/job coordinator. Polling avoids WebSocket dependencies and works on ordinary LAN HTTP.
-- `public/app.js`: room UI, ~900 ms heartbeat, single-frame claims, upload, progress, host collection.
-- `public/worker.js` + `renderer.js`: actual deterministic CPU computation outside the UI thread. Each frame samples a layered 3D noise field; no server-side rendering or simulated progress.
-- `public/gif.js`: browser GIF89a encoder with a shared 256-color palette and simple fixed-width LZW. All frames are assembled in frame-index order, regardless of completion order.
-
-Each assignment has a unique lease token and render-run ID. Disconnected jobs and 30-second expired leases are requeued. Late or duplicate results receive HTTP 409. One outstanding frame per device limits recovery cost. The host also contributes. New devices can join mid-render. The host can render again after completion.
-
-## Honest performance measurements
-
-**Wall time** runs from server render start until the last accepted upload. **Worker CPU time** is the sum of accepted worker render durations measured with `performance.now()`; it includes OS scheduling, excludes rejected/repeated computation, and is not actual CPU utilization. **Frame payload** counts raw accepted indexed pixels, excluding the roughly 33% base64 expansion, HTTP/polling overhead, rejected uploads, and final frame download. Browser GIF assembly happens after render wall time and is not included.
-
-Compare one-laptop and three-laptop wall times using the same scene, machines, power settings, and network; repeat several runs. Do not label summed worker time divided by wall time as speedup. Small jobs, slow devices, background-tab throttling, coordination, and uploads can make the shared run slower. This MVP uses one worker per laptop and a fixed 192×128, 120-frame scene. GIF encoding favors simplicity over compression (~3.2 MB output).
-
-## Verify
+The application retains Node.js 20+ compatibility. For a supported runtime, install Node.js 22 or 24 LTS (see the [official release status](https://nodejs.org/en/about/previous-releases)), then run from the repository root:
 
 ```sh
-node --test
+npm start
 ```
 
-Tests cover distinct assignments, host permissions, graceful and heartbeat-based recovery, stale lease rejection, completion, ordered collection, new runs, renderer determinism, and GIF framing.
+Open `http://localhost:3000` on the coordinator laptop. No `npm install` is needed because `package.json` has no dependencies. Check installed versions with `node --version` and `npm --version`.
 
-The full-render test also computes all 120 frames using concurrent worker threads and writes `output/borrowed-sky.gif`. It uses the same renderer as the browser but is not a substitute for browser or physical-device testing.
+To use another port in PowerShell:
 
-Verified during implementation: the test suite passed; Windows decoded all 120 generated GIF frames; two browser clients joined the same render, the guest completed 27 frames before leaving, one unfinished frame was recovered, and the host reached 120/120 with a looping preview and a 3.2 MB download link. That browser run took 37.5 seconds, with 47.6 seconds of summed worker durations, on one physical machine. These are functional checks, not a speedup benchmark. Multi-laptop LAN reachability remains to be checked at the venue.
+```powershell
+$env:PORT = '3004'
+npm start
+```
 
-## 24-hour scope and limitations
+In macOS/Linux shells, use `PORT=3004 npm start`. To stop the coordinator, press Ctrl+C. Restarting clears rooms, completed frames and benchmark history. Return to room setup and create a new room after a restart.
 
-This is a trusted-network prototype: no accounts, persistent storage, host transfer, malicious-worker validation, or internet production hardening. A room code grants contribution access. Host actions require a private session token. Up to 32 device sessions per room and 100 rooms per server are allowed; restart the server to clear old rooms. A disconnected host’s frames are recovered, but its tab must return to collect the animation. Very slow devices may repeatedly exceed the lease. Refresh after a server restart and leave the old room to create a new one.
+### Connect additional laptops
 
-Suggested next steps after the demo works on three physical devices: adjustable workload, per-device throughput, measured one-device baseline, compressed binary transport, and persistent results. Avoid adding these before verifying the LAN demo.
+1. Connect every laptop to the same Wi-Fi network. Keep the coordinator awake and plugged in.
+2. The coordinator prints a `Same Wi-Fi` address, for example `http://192.168.1.20:3000`. Use the address actually printed on your machine. Multiple adapters may produce multiple addresses; choose the active Wi-Fi adapter.
+3. Open that LAN address on each contributor laptop. `localhost` and `127.0.0.1` refer to the laptop using them, so they cannot reach a different laptop's coordinator.
+4. Create a room on the host, name each device and join using the six-character code. Copy room invite works directly from a LAN URL. From localhost it explains how to share the LAN address instead.
+5. Keep contributor tabs open. Recent Chrome or Edge is the recommended rehearsal target; the app needs ES modules, module Web Workers, canvas, fetch and modern AbortSignal support.
+
+If another laptop cannot connect, first verify the address and port, the same Wi-Fi network and that the server is running. Check the operating system's private-network firewall permission for Node.js and whether guest Wi-Fi/client isolation prevents peer connections. VPNs and multiple network adapters can select the wrong route. Do not disable the firewall wholesale. A phone hotspot or venue-approved local network can be a fallback, but must be tested beforehand.
+
+## Features and workflow
+
+- **Workspace:** persistent room/role/connection indicators, section navigation, progress, frame map and current settings. The layout adapts to narrow windows; metric tables scroll horizontally. Network effects honor reduced motion and stop offscreen. Brighter pixel clouds drift automatically across the homepage illustration while the large panel floats up and down. No scrolling is needed. Decorations pause when the tab is hidden or a render is active; clouds and the panel pause offscreen. Reduced-motion preferences make decorations static by default, with an explicit Enable motion opt-in. Enable/Pause motion choices are saved for this site when browser storage is available, so reopening preserves them. Enabling motion resumes cloud drift. Content remains visible without animation support.
+- **Procedural environments:** Sunny Sky (default), Sunset, Night Sky and Stormy Sky. Clouds, stars and storm lightning depend on frame/configuration, not randomness or wall clocks. Fixed reference fixtures protect indexed pixels and palettes.
+- **Shared settings:** resolutions 192 × 128, 384 × 256 and 576 × 384; 60, 120 or 240 frames; low/medium/high cloud density; 10/20/40 playback FPS; three backgrounds for each theme. Starting freezes the configuration for every assignment and export. Changing playback FPS changes animation timing, not the number of pixels computed.
+- **Contributor dashboard:** device identity and role, connection/activity, accepted and assigned frames, average render duration, rolling throughput, share of completed work and a ranked leaderboard. Ties share rank. Disconnected devices retain their accepted-work credit.
+- **Network view:** the coordinator and real device nodes, assignment/acceptance/recovery events, an inspector and a bounded recent event list. Signals reflect server events observed through polling, not instantaneous network traffic.
+- **Performance lab:** actual completed-run history, one/two/three-device cards, charts, baseline selection and JSON export. It never fills empty configurations with example results.
+- **Final animation:** ordered frame collection, background GIF encoding, play/pause/restart, loop toggle, 0.5×/1×/1.5×/2× preview speeds, frame navigation, frozen run statistics and GIF download. Preview controls do not change the exported GIF's timing or infinite loop. Export failures offer explicit retry. The host can open export status as soon as rendering finishes, see actual collected-frame progress and an indeterminate encoding state, and reach retry even before a GIF is ready.
+- **Consecutive runs:** the host can choose new settings and start again in the same room. Starting resets progress, pause/simulation state and device run metrics; old previews and download URLs are discarded.
+
+### Permissions and lifecycle
+
+The host can configure/start renders, collect/export frames, view benchmark history, simulate failure and restore simulated workers. Contributors can join, claim/render/upload their assignments, pause/resume themselves and leave. The host also contributes CPU. **Pause my contribution affects only that browser** and finishes an already assigned frame; it does not pause the whole network.
+
+The coordinator enforces host identity and a private session token on authenticated endpoints. Assignment proofs include the run, frame and lease token. The room code lets someone join; it does not confer host authority. Keep this on a trusted network: there are no user accounts, encryption, malicious-worker validation or rate limiting.
+
+Credentials survive refresh in session storage for that tab. Keep the original host tab available: a new tab joining with the code is a contributor, not a replacement host. There is no host transfer. If storage is blocked, joining still works with a warning, but refreshing loses that session. Malformed saved credentials are ignored. If the host browser disconnects while the Node process remains running, other devices can finish and the same host session can return to collect the result. If the coordinator process or its network disappears, rendering cannot complete until it is reachable; a process restart loses all room state.
+
+A renderer startup, execution or message-delivery failure stops that laptop locally even if its pause request cannot reach the server. Other devices continue, and the abandoned lease expires normally. Use **Resume contribution** to retry, or start a new run to reset the fault. Final animation playback does not auto-start with reduced motion enabled; explicit Play remains available.
+
+### Reported browser and hardware information
+
+The contributor table preserves session IDs and rendering statistics and adds **Reported browser / OS** and **Reported hardware**. Optional browser APIs provide logical processor count and a coarse estimate of total RAM; unavailable values are explicitly labeled. These are client reports, not physical CPU core counts, free memory, CPU utilization, or performance measurements. RAM may be unavailable on ordinary LAN HTTP or in privacy-restricted browsers. OS/browser family labels are best-effort and omit version numbers.
+
+A random UUID stored under `borrowed-sky-browser-id` in local storage supplies a recognizable `Browser …` label across refreshes and visits to the same site origin. Only its short label is exposed in room snapshots. It is not a fingerprint, authentication token, or proof of a unique physical laptop. Different origins (including localhost versus the LAN address), profiles, private windows, or clearing site data can produce different labels. Without storage it lasts only for the page lifetime; without secure randomness the label is unavailable. No hostname, hardware serial, exact OS version, raw user-agent string, GPU identity, or CPU/free-memory usage is sent.
+
+Reports are refreshed through the existing authenticated heartbeat, including reconnects. Missing reports from older clients retain the previous report; supplied reports are validated and replace it. The server records its own receipt time. Full reports allow only `browserId`, `logicalProcessors`, `memoryGiB`, `os`, and `browser`; unsupported values/fields are rejected. Labels and reported capabilities never affect authorization, assignment order, benchmark worker counts, or device deduplication. Multiple tabs remain independent rendering sessions even if their browser labels match. There is no new coordinator, protocol, or background hardware monitor.
+
+See [Python backend integration notes](docs/PYTHON-INTEGRATION.md) for the source comparison and features intentionally not ported.
+
+### Recovery and failure demonstration
+
+Browsers poll about every 900 ms. After seven seconds without authenticated activity, a device becomes disconnected and its unfinished work is requeued on the next coordinator request. Assignments also have 30-second leases; only a matching current assignment proof renews one. The coordinator sweeps before refreshing presence, so expired proofs cannot revive old assignments. Late/duplicate/stale uploads are rejected and never receive credit.
+
+To demonstrate recovery, start a render with another contributor, open Host controls, choose a contributor with an active frame and select **Fail selected worker**. The host cannot be selected. This uses the same server requeue path as a real disconnect; it does not shut off Wi-Fi. A paused or idle contributor may have nothing to recover, and the UI says so. Reset simulation restores eligibility when the device is connected; revoked leases remain invalid. A new run clears simulations.
+
+## Benchmark measurements
+
+| Measurement | Definition |
+| --- | --- |
+| Rendering wall time | Coordinator start to last accepted upload; includes scheduling and transfer, excludes GIF collection/encoding. Live displays use the coordinator timestamp rather than the viewer's clock. |
+| Summed worker rendering time | Sum of accepted per-frame `performance.now()` durations reported by workers. Includes OS scheduling; excludes rejected/duplicated work. Not CPU utilization. |
+| Average frame time | Summed accepted worker duration divided by accepted frame count. |
+| Run frames/s | Accepted frame count divided by wall seconds. |
+| Live network/device frames/s | Accepted completions in a rolling five-second window, using elapsed run time during startup. Falls to zero when work stops. |
+| Accepted frame payload | Raw indexed pixel bytes only; excludes base64, HTTP/polling, retries, collection and GIF bytes. |
+| Participating devices | Browser identities that delivered at least one accepted frame. This does not prove separate physical laptops. |
+
+Speedup is **single-device wall time / multi-device wall time**. Time reduction is **(1 − multi-device wall time / single-device wall time) × 100%**; it can be negative. Total Worker Render Time divided by wall time is never used as speedup.
+
+Expand **Set up a comparable benchmark** before a measured run. Enter a test series and attest consistent coordinator, network, power/browser settings, background load and warm-up policy. A comparison requires the same complete configuration and renderer workload version, the same confirmed series, positive wall durations, the baseline identity in the multi-device run and no recovered assignments. Conditions are host-attested, not automatically verified. Unconfirmed runs still record real measurements without a speedup claim. Device-count cards can contain different workloads; chart bars alone do not establish comparability.
+
+Measure a baseline with only one connected contributing laptop, then add a second and third and repeat the identical workload. Starting resumes all joined devices, so leave unused ones out. Repeat trials and report variability. Two tabs on one machine are useful functional tests, not a distributed performance benchmark.
+
+History retains the latest 50 completed runs per room in memory. Download measurements JSON before restarting. History contains frozen settings/metrics, not frame buffers or private tokens.
+
+## Performance and memory limits
+
+The largest UI preset (576 × 384 × 240) contains **53,084,160 indexed bytes (50.625 MiB)**. Base64 upload and collection each represent about **67.5 MiB** before HTTP and JSON overhead. The fixed-width GIF encoder produces approximately **57.47 MiB** for this workload regardless of image compressibility. This is an 18× pixel workload relative to the default, not a promise of 18× wall time.
+
+Each rendering worker computes one frame at a time and transfers its indexed output. The renderer caches shared noise lattice values within a frame without changing Float64 interpolation order. Accepted frames remain in coordinator memory until the next render or server restart. The coordinator reserves each run's full indexed size before starting, enforcing a shared **256 MiB frame-storage budget** across active and completed rooms. Replacing a completed run reuses that room's reservation. A start exceeding the budget is rejected without disturbing existing runs; save needed results before restarting to clear rooms. This budget excludes JSON, base64, metadata and runtime overhead, so it is not a process-RAM ceiling. The 100-room cap is not a promise that 100 maximum-size renders fit in RAM.
+
+The host collects frames in batches targeting 2 MiB of base64 data (a single operator-sized frame may exceed that), validates run/configuration/order and decodes into indexed arrays. GIF encoding runs in a separate worker; input and output buffers are transferred, not cloned. Leaving or starting a new run cancels export. Indexed frames are retained for playback, the decoded RGBA cache is capped at 24 MiB, and leaving clears it. The final Blob, encoder output, indexed data and browser overhead can still coexist: **peak process memory is larger than raw payload and is browser-dependent**. Rehearse the maximum preset on the actual host before using it live.
+
+The encoder keeps its existing palette, ordered frames, fixed-width LZW and frame-delay rounding (including fractional centiseconds at 40 FPS). No compression algorithm or renderer visual output was changed by the reliability pass. Large exports still take time and the browser may use additional memory to download/open them.
+
+Interactive edits stay within the existing 64 MiB indexed-pixel budget. Advanced `RENDER_CONFIG` JSON overrides are accepted at server startup within existing bounds (dimensions ≤2048, frames ≤600, FPS ≤100, total indexed pixels ≤128 MiB); they are not all UI presets or physical-device-validated workloads. The encoder rejects output over 160 MiB. Upload requests are byte-counted and capped for configured/preset dimensions plus 16 KiB metadata, with an 8 MiB absolute ceiling. Non-upload request bodies are capped at 16 KiB. Limits were not increased.
+
+## Tests and CI
+
+See [the final reliability review](docs/REVIEW.md) for the dated review findings, verification scope and outstanding rehearsal checks.
+
+```sh
+npm test
+```
+
+The complete suite uses Node's built-in test runner. It covers permissions, assignment ownership, pause and lease renewal, disconnect/reconnect and simulation recovery, stale runs/uploads/collection, accepted-only metrics and comparable benchmarks, configuration combinations, deterministic fixtures, decoded GIF pixels/order/timing, export-worker transfer/cancellation and browser-controller lifecycle. The full render test writes `output/borrowed-sky.gif`. Maximum-size GIF tests use synthetic indexed frames to verify capacity/order; they are not a full maximum-size cloud render or measured multi-device benchmark.
+
+`.github/workflows/test.yml` runs `npm test` on pushes to main and pull requests with Node 20, 22 and 24. Node 20 is included for compatibility coverage; use a supported LTS version for the demonstration. There is no install step because there are no dependencies. A local passing run is not evidence that GitHub Actions has executed; check the Actions tab after pushing the workflow.
+
+`node scripts/profile-renderer.mjs` compares the optimized renderer against a frozen themed fixture, checks sampled pixels and writes `output/renderer-profile.json`. These are local renderer microbenchmarks, not distributed speedup measurements.
+
+Browser tests and controller harnesses do not establish LAN reachability, cross-engine equivalence or physical-laptop performance. Fixed hashes and independent worker tests verify deterministic reference output in the tested runtime; test the intended browsers on your actual machines.
+
+## Physical multi-laptop rehearsal
+
+Record the date, devices, OS/browser versions, network, workload, results and failures. Mark this checklist complete only after performing it on distinct physical laptops.
+
+1. On laptop A, run `npm start`; confirm its printed LAN address is reachable from laptops B and C. Keep Node running, all laptops awake/plugged in, and contributor tabs foregrounded.
+2. Create a room on A, join the same code on B/C and give each a recognizable name. Verify all three identities and correct host/contributor roles. Confirm B/C cannot edit settings, start a render, use host simulation controls or export the host GIF.
+3. Select a default Sunny Sky run first. Confirm identical settings on all screens, start on A and verify each device's accepted count rises. Watch assignments, progress, rolling throughput and contribution shares agree after polling.
+4. During a sufficiently long run, disable B's Wi-Fi while it holds an assignment. Keep A/C working. After the seven-second timeout plus polling, verify B is disconnected, an unfinished frame is requeued and other devices complete it. Completed work stays credited. Re-enable B's Wi-Fi and confirm it rejoins the same session without duplicate credit.
+5. Separately exercise host **Simulate Worker Failure** on a rendering contributor; verify recovery, then reset it. Pause/resume a contributor and verify other devices continue.
+6. Refresh the original host tab during a run while keeping Node alive. Confirm the same host session returns, progress is retained and the animation completes. Do not close the coordinator terminal.
+7. Wait for all frames and GIF assembly. Check final count, resolution/theme, contributing-device count and real timings. Exercise play, pause, restart, all speeds, frame navigation and loop off/on. Download and open the GIF; check looping, order and timing.
+8. Change theme/settings and start another run in the same room. Verify zeroed counters, cleared old download, resumed devices and a different final animation. Join/leave a contributor during this second run.
+9. Test a narrow window, keyboard navigation, readable errors and reduced motion. Disconnect/reconnect one browser briefly and verify connection indicators recover.
+10. Rehearse 576 × 384 / 240 frames on the intended host only if the demo will use it. Watch operating-system memory/CPU, responsiveness during collection/export and the download. If it is too slow or memory-heavy, choose the default or medium preset for the demo.
+11. For speedup claims, run separate controlled one/two/three-laptop trials without failure injection and export history. Do not use recovery rehearsal timings as a speedup benchmark.
+
+## Known limitations and demo preparation
+
+- Physical LAN testing must be done by the team; same-machine browser sessions do not satisfy it. Venue Wi-Fi isolation, firewalls and background throttling remain practical risks.
+- Rooms/frames/history are in memory; no persistence, host migration or room deletion. Up to 32 identities per room and 100 rooms per coordinator; leaving does not remove an identity or free its slot. Restart between rehearsals to clear unused rooms, after exporting needed results.
+- The coordinator trusts authenticated frame content and reported durations. No untrusted/public deployment hardening, TLS, user accounts or CPU-utilization measurement is provided.
+- Network interruptions can cause repeated computation, but only the valid accepted assignment counts. Recovery runs are excluded from speedup comparisons.
+- Keep a downloaded GIF and exported benchmark JSON as an honestly labeled fallback. Prefer the default workload for a short live demonstration and use the failure simulator when a real network interruption would be disruptive.
+
+## Source map
+
+`server.mjs` owns rooms, authentication, assignments, recovery, collection and static routes. `lib/dashboard.mjs` and `lib/benchmarks.mjs` derive measured statistics. `public/config.js`, `renderer.js` and `worker.js` define the deterministic workload. `app.js` manages the browser session; `export.js`/`export-worker.js` run the unchanged `gif.js` encoder off-thread. Dashboard, network, benchmark, failure-demo, playback, result-viewer and shell modules own their respective views. `index.html` and the CSS files provide the no-build interface. Tests and fixtures live under `test/`.

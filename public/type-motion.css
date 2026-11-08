@@ -1,0 +1,102 @@
+/* Reference measurements: Squarespace homepage, November 2026.
+   Clarkson is not distributed with this project. Use its system fallback.
+   Font roles: hero 60/62.4, section 36/38.88, card 26/28.08,
+   body 16/22.4, action 14/14, caption 12/16.8 (sizes in px). */
+:root { --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif; font-family:var(--font-sans); }
+body { font-size:16px; line-height:1.4; }
+h1, h2, h3, p, input, button, .button, .brand span, .eyebrow,
+.room-heading h2, .progress-title strong, .metrics strong { font-family:var(--font-sans); }
+h1 { font-size:60px; line-height:1.04; letter-spacing:-.06em; font-weight:300; margin-bottom:28px; }
+h1 em { font:inherit; color:inherit; }
+.how-it-works h2, .studio-heading h2,
+body:has(#room:not([hidden])) .studio-heading h2 { font:400 36px/1.08 var(--font-sans); letter-spacing:-.04em; }
+.steps h3 { font:400 26px/1.08 Georgia,serif; letter-spacing:-.02em; }
+.panel-title h3 { font:500 20px/1.2 var(--font-sans); letter-spacing:-.01em; }
+.room-heading h2 { font-size:36px; line-height:1.08; letter-spacing:-.04em; }
+.lead, .hero-note, .steps p, .studio-heading>p:last-child { font-size:16px; line-height:1.4; letter-spacing:normal; }
+.hero-note { margin-top:24px; }
+.steps p { max-width:360px; }
+button, .button, header nav a, .header-cta, .hero-cta,
+.controls button, .controls .button, .small { font-family:var(--font-sans); font-size:14px; line-height:1; font-weight:500; letter-spacing:normal; }
+.button, button { min-height:48px; }
+.header-cta, .hero-cta { padding:24px 32px; min-height:60px; }
+.eyebrow, .hero-copy .eyebrow, .room-heading .eyebrow,
+.badge, .steps article>span, .side-card>span,
+.art-card-top, .art-card-bottom, .hero-bottom,
+.preview-footer, #preview-label, .legend, footer { font-size:12px; line-height:1.4; letter-spacing:normal; font-weight:400; }
+.eyebrow { font-weight:500; }
+label, input, table, #message, .progress-title>span { font-size:15px; line-height:1.4; }
+.muted, .lobby-note, .metrics span { font-size:12px; line-height:1.4; }
+.brand span { font-size:20px; letter-spacing:.05em; }
+.brand .brand-mark { font-size:48px; }
+.art-image>span { font-size:50px; line-height:1.08; letter-spacing:-.04em; }
+.side-card p, .right-card p { font-size:26px; line-height:1.08; letter-spacing:-.02em; }
+.progress-title strong { font-size:70px; line-height:1.04; letter-spacing:-.05em; font-weight:300; }
+.metrics strong { font-size:36px; line-height:1.08; letter-spacing:-.04em; }
+.intro { padding-top:160px; min-height:840px; --travel:0; --background-shift:0px; }
+.hero-gallery { margin-top:70px; }
+.art-card-top, .art-card-bottom { gap:20px; }
+header { position:fixed; height:80px; transition:background-color .35s ease, box-shadow .35s ease; }
+header.scrolled { background:#171717f5; box-shadow:0 1px 0 #ffffff12; }
+html { scroll-padding-top:104px; }
+body:has(#room:not([hidden])) header { position:relative; }
+.intro:before { inset:-100px 0; transform:translate3d(0,var(--background-shift),0); }
+.motion-enhanced:before { display:none; }
+.hero-backdrop {
+  position:absolute; inset:-100px 0; z-index:-2; pointer-events:none;
+  background:linear-gradient(#12203577,#18284055 55%,#101e35dd),url('/sky.svg') center 40%/cover no-repeat;
+  filter:saturate(.65);
+}
+.motion-active .hero-backdrop, .motion-active .hero-copy,
+.motion-active .art-card, .motion-active .orbit-art { will-change:transform; }
+.hero-copy { transform:translate3d(0,calc(var(--travel) * 45px),0); }
+.left-card { transform:translate3d(calc(var(--travel) * -110px),calc(42px - var(--travel) * 90px),0) rotate(calc(-7deg - var(--travel) * 6deg)); }
+.center-card { transform:translate3d(0,calc(15px - var(--travel) * 65px),0) scale(calc(1 + var(--travel) * .045)); }
+.right-card { transform:translate3d(calc(var(--travel) * 110px),calc(50px - var(--travel) * 55px),0) rotate(calc(7deg + var(--travel) * 6deg)); }
+.orbit-art { transform:rotate(calc(var(--travel) * 80deg)); }
+.how-it-works>.eyebrow, .how-it-works>h2, .steps article, .studio-heading>*, .lobby>div {
+  transition:opacity .75s ease, translate .85s cubic-bezier(.22,1,.36,1);
+}
+.steps article:nth-child(2) { transition-delay:.1s; }
+.steps article:nth-child(3) { transition-delay:.2s; }
+.reveal-pending { opacity:0; translate:0 36px; }
+.reveal-pending:focus-within { opacity:1; translate:0 0; }
+.button>span { transition:translate .25s ease; }
+.button:hover>span { translate:4px -2px; }
+@media(min-width:1600px) { h1 { font-size:80px; } }
+@media(max-width:900px) {
+  header nav { gap:18px; }
+  header nav a { font-size:12px; }
+  .brand span { font-size:16px; }
+  .art-card-top, .art-card-bottom, .side-card>span { font-size:10px; }
+}
+@media(max-width:600px) {
+  h1 { font-size:42px; line-height:1.04; letter-spacing:-.06em; }
+  .how-it-works h2, .studio-heading h2, .room-heading h2,
+  body:has(#room:not([hidden])) .studio-heading h2 { font-size:26px; line-height:1.08; letter-spacing:-.04em; }
+  .lead, .hero-note, .steps p, .studio-heading>p:last-child { font-size:16px; }
+  .intro { padding-top:125px; min-height:770px; }
+  .hero-copy { padding:0 24px; }
+  .hero-copy .eyebrow { font-size:10px; }
+  .hero-gallery { margin-top:55px; }
+  .hero-cta { padding:22px 26px; }
+  .header-cta { padding:16px; min-height:48px; }
+  .brand span { font-size:13px; }
+  .brand .brand-mark { font-size:38px; }
+  .art-card-top, .art-card-bottom, .side-card>span, .hero-bottom { font-size:9px; }
+  .art-image>span { font-size:36px; }
+  .side-card p, .right-card p { font-size:22px; }
+  .panel-title { flex-wrap:wrap; gap:12px; }
+  .preview-footer { flex-wrap:wrap; }
+  .progress-title strong { font-size:60px; }
+  .badge, .legend { font-size:11px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  html { scroll-behavior:auto; }
+  header, .button>span, .how-it-works>*, .steps article, .studio-heading>*, .lobby>div { transition:none; }
+  .reveal-pending { opacity:1; translate:none; }
+  .intro:before, .hero-backdrop, .hero-copy, .orbit-art { transform:none; }
+  .left-card { transform:rotate(-7deg) translateY(42px); }
+  .center-card { transform:translateY(15px); }
+  .right-card { transform:rotate(7deg) translateY(50px); }
+}
