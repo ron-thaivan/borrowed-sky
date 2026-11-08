@@ -6,7 +6,7 @@ There is no build step, database, external font service or runtime package depen
 
 ## Start
 
-Install Node.js 22 or 24 LTS (see the [official release status](https://nodejs.org/en/about/previous-releases)), then run from the repository root:
+The application retains Node.js 20+ compatibility. For a supported runtime, install Node.js 22 or 24 LTS (see the [official release status](https://nodejs.org/en/about/previous-releases)), then run from the repository root:
 
 ```sh
 npm start
@@ -41,7 +41,7 @@ If another laptop cannot connect, first verify the address and port, the same Wi
 - **Contributor dashboard:** device identity and role, connection/activity, accepted and assigned frames, average render duration, rolling throughput, share of completed work and a ranked leaderboard. Ties share rank. Disconnected devices retain their accepted-work credit.
 - **Network view:** the coordinator and real device nodes, assignment/acceptance/recovery events, an inspector and a bounded recent event list. Signals reflect server events observed through polling, not instantaneous network traffic.
 - **Performance lab:** actual completed-run history, one/two/three-device cards, charts, baseline selection and JSON export. It never fills empty configurations with example results.
-- **Final animation:** ordered frame collection, background GIF encoding, play/pause/restart, loop toggle, 0.5×/1×/1.5×/2× preview speeds, frame navigation, frozen run statistics and GIF download. Preview controls do not change the exported GIF's timing or infinite loop. Export failures offer explicit retry.
+- **Final animation:** ordered frame collection, background GIF encoding, play/pause/restart, loop toggle, 0.5×/1×/1.5×/2× preview speeds, frame navigation, frozen run statistics and GIF download. Preview controls do not change the exported GIF's timing or infinite loop. Export failures offer explicit retry. The host can open export status as soon as rendering finishes, see actual collected-frame progress and an indeterminate encoding state, and reach retry even before a GIF is ready.
 - **Consecutive runs:** the host can choose new settings and start again in the same room. Starting resets progress, pause/simulation state and device run metrics; old previews and download URLs are discarded.
 
 ### Permissions and lifecycle
@@ -98,7 +98,7 @@ npm test
 
 The complete suite uses Node's built-in test runner. It covers permissions, assignment ownership, pause and lease renewal, disconnect/reconnect and simulation recovery, stale runs/uploads/collection, accepted-only metrics and comparable benchmarks, configuration combinations, deterministic fixtures, decoded GIF pixels/order/timing, export-worker transfer/cancellation and browser-controller lifecycle. The full render test writes `output/borrowed-sky.gif`. Maximum-size GIF tests use synthetic indexed frames to verify capacity/order; they are not a full maximum-size cloud render or measured multi-device benchmark.
 
-`.github/workflows/test.yml` runs `npm test` on pushes to main and pull requests with Node 22 and 24. There is no install step because there are no dependencies. A local passing run is not evidence that GitHub Actions has executed; check the Actions tab after pushing the workflow.
+`.github/workflows/test.yml` runs `npm test` on pushes to main and pull requests with Node 20, 22 and 24. Node 20 is included for compatibility coverage; use a supported LTS version for the demonstration. There is no install step because there are no dependencies. A local passing run is not evidence that GitHub Actions has executed; check the Actions tab after pushing the workflow.
 
 `node scripts/profile-renderer.mjs` compares the optimized renderer against a frozen themed fixture, checks sampled pixels and writes `output/renderer-profile.json`. These are local renderer microbenchmarks, not distributed speedup measurements.
 

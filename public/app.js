@@ -179,14 +179,17 @@ async function assemble(run){
  const controller=new AbortController();exportController=controller;
  try {
  const config=completed.config,collected=[];
+ resultViewer.progress(0,config.count);
  const batch=Math.max(1,Math.min(config.count,Math.floor(2*1024*1024/(4*Math.ceil(config.width*config.height/3)))));
  for(let offset=0;offset<config.count;offset+=batch){
   say('Collecting animation frames '+(offset+1)+'–'+Math.min(offset+batch,config.count)+' of '+config.count+'…');
   const data=await api('frames',{run,offset,limit:batch});if(!current())return;
   if(data.run!==run||data.offset!==offset||JSON.stringify(data.config)!==JSON.stringify(config)||data.frames.length!==Math.min(batch,config.count-offset))throw new Error('Collected frames do not match the completed run.');
   for(const encoded of data.frames){const pixels=decode(encoded);if(pixels.length!==config.width*config.height)throw new Error('Invalid collected frame size');collected.push(pixels);}
+  resultViewer.progress(collected.length,config.count);
  }
  say('Encoding GIF… Your workspace remains available.');
+ resultViewer.progress(null,config.count);
  const {frames,gif}=await encodeInWorker(collected,config,controller.signal);if(!current())return;
  const data={config};
  if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([gif],{type:'image/gif'}));$('download').href=downloadUrl;$('download').download='borrowed-sky-'+data.config.theme+'.gif';$('download').hidden=false;assembledRun=run;

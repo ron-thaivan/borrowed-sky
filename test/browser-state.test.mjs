@@ -16,7 +16,7 @@ async function browser() {
  const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,backgroundPresets,RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary,
   updateFailureDemo(){},resetFailureDemo(){},drawDashboard(){},dashboardConnection(){},resetNetwork(){},updateBenchmarks(){},resetBenchmarks(){},benchmarkRequest(){return {};},Worker:class {postMessage(){} terminate(){}},
   updateShell(){},sessionShell(){},shellConnection(){},
-  createResultViewer:()=>({clear(){results.cleared++;},busy(){},failed(message){results.errors.push(message);},show(value){results.shown.push(value);},setStarting(){}}),
+  createResultViewer:()=>({clear(){results.cleared++;},busy(){},progress(){},failed(message){results.errors.push(message);},show(value){results.shown.push(value);},setStarting(){}}),
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,AbortController,Blob,console,atob,btoa,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
   window:{addEventListener(){}},navigator:{},sessionStorage:{getItem:()=>null,removeItem(){}},

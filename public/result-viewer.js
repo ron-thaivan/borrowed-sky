@@ -5,6 +5,7 @@ export function createResultViewer({imageFor,startNew,retry}){
  const $=id=>document.getElementById(id),root=$('final-result');
  root.innerHTML=`<div class="result-heading"><div><p class="eyebrow">MADE TOGETHER / READY TO KEEP</p><h3>Your shared sky</h3></div><span id="result-badge">Finishing up</span></div>
  <p id="result-message" role="status" aria-live="polite"></p>
+ <progress id="result-collection-progress" aria-label="Animation frame collection" hidden></progress>
  <div id="result-content" hidden><div class="result-canvas"><canvas id="result-preview" aria-label="Completed animation preview"></canvas></div>
  <div class="result-controls" role="group" aria-label="Animation playback controls"><button id="result-play">Play</button><button id="result-pause">Pause</button><button id="result-restart">Restart</button><label><input type="checkbox" id="result-loop" checked> Loop preview</label><label for="result-speed">Preview speed</label><select id="result-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></div>
  <div class="result-scrub"><button id="result-prev" aria-label="Previous frame">←</button><label for="result-frame">Frame</label><input id="result-frame" type="range" min="0" step="1"><output id="result-position" for="result-frame"></output><button id="result-next" aria-label="Next frame">→</button></div>
@@ -14,7 +15,7 @@ export function createResultViewer({imageFor,startNew,retry}){
  <button id="result-retry" hidden>Retry GIF assembly</button><div class="result-next"><p>Keep the room and your crew. Choose settings above, or render the same sky again.</p><button id="result-new">Start a new render ↗</button></div>`;
  let player=null,currentFrame=0;
  const canvas=$('result-preview'),context=canvas.getContext('2d');
- function clear(){player?.dispose();player=null;root.hidden=true;$('result-content').hidden=true;$('result-retry').hidden=true;$('result-download').removeAttribute('href');context.clearRect(0,0,canvas.width,canvas.height);canvas.width=1;canvas.height=1;}
+ function clear(){player?.dispose();player=null;root.hidden=true;$('result-collection-progress').hidden=true;$('result-content').hidden=true;$('result-retry').hidden=true;$('result-download').removeAttribute('href');context.clearRect(0,0,canvas.width,canvas.height);canvas.width=1;canvas.height=1;}
  $('result-play').onclick=()=>player?.play();$('result-pause').onclick=()=>player?.pause();$('result-restart').onclick=()=>player?.restart();
  $('result-loop').onchange=()=>player?.setLoop($('result-loop').checked);
  $('result-speed').onchange=()=>player?.setSpeed(Number($('result-speed').value));
@@ -25,7 +26,11 @@ export function createResultViewer({imageFor,startNew,retry}){
  return {
   clear,
   busy(){clear();root.hidden=false;$('result-badge').textContent='Preparing GIF';$('result-message').textContent='All frames received. Collecting your animation and encoding the GIF…';},
-  failed(message){root.hidden=false;$('result-badge').textContent='Export needs attention';$('result-message').textContent=message;$('result-retry').hidden=false;},
+  progress(completed,total){const bar=$('result-collection-progress');bar.hidden=false;bar.max=total;
+   if(completed===null){bar.removeAttribute('value');$('result-badge').textContent='Encoding GIF';$('result-message').textContent='Every frame is collected. Encoding your GIF in the background; you can still use the workspace.';}
+   else{bar.value=completed;$('result-message').textContent=`Collected ${completed} of ${total} animation frames. Your GIF will be encoded next.`;}
+  },
+  failed(message){root.hidden=false;$('result-collection-progress').hidden=true;$('result-badge').textContent='Export needs attention';$('result-message').textContent=message;$('result-retry').hidden=false;},
   setStarting(value){$('result-new').disabled=value;},
   show({frames,config,snapshot,url,bytes}){
    clear();root.hidden=false;$('result-content').hidden=false;$('result-badge').textContent='Render complete';

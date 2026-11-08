@@ -19,8 +19,14 @@ test('result viewer uses completed metadata, wires controls, and clears old down
  const config={width:2,height:2,count:3,fps:40,theme:'night',density:'high',background:'deep'};
  const frames=Array.from({length:3},(_,i)=>new Uint8Array(4).fill(i));
  viewer.busy();assert.equal(get('final-result').hidden,false);assert.equal(get('result-content').hidden,true);
+ viewer.progress(1,3);assert.equal(get('result-collection-progress').value,1);assert.equal(get('result-collection-progress').max,3);
+ assert.match(get('result-message').textContent,/Collected 1 of 3/);
+ viewer.progress(null,3);assert.equal(get('result-collection-progress').value,undefined);assert.equal(get('result-badge').textContent,'Encoding GIF');
+ viewer.failed('Offline');assert.equal(get('result-collection-progress').hidden,true);assert.equal(get('result-retry').hidden,false);
+ viewer.busy();viewer.progress(0,3);assert.equal(get('result-retry').hidden,true);assert.equal(get('result-collection-progress').value,0);
  viewer.show({frames,config,snapshot:{started:1000,finished:3000,computeMs:300,devices:[{completed:2},{completed:1},{completed:0}]},url:'blob:completed',bytes:1024});
  assert.equal(get('result-preview').width,2);assert.equal(get('result-frame').max,2);
+ assert.equal(get('result-collection-progress').hidden,true);
  assert.equal(get('result-download').href,'blob:completed');assert.match(get('result-file').textContent,/40 FPS/);
  assert.deepEqual(get('result-stats').children.map(card=>card.children[1].textContent),['3','2 × 2','Night Sky','2','2.00 s','100.00 ms']);
  assert.deepEqual(JSON.parse(get('result-config').textContent),config);
