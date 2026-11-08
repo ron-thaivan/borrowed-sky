@@ -1,3 +1,8 @@
 node_modules/
 *.log
 output/
+# virtual env
+.venv/
+# python cache and compiled files
+__pycache__/
+*.pyc 
