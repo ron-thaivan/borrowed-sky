@@ -1,4 +1,5 @@
 import './motion.js';
+import {setRenderingMotion} from './ambient.js';
 import {themes,getPalette,backgroundPresets} from './renderer.js';
 import {drawDashboard,dashboardConnection} from './dashboard.js';
 import {encodeInWorker} from './export.js';
@@ -140,7 +141,7 @@ function draw(s){
  const displayConfig=s.started===null?(s.selectedConfig||s.config):s.config;
  configurePreview(displayConfig);
  if(state?.run!==s.run){ctx.clearRect(0,0,s.config.width,s.config.height);$('preview-label').textContent='WAITING FOR FIRST FRAME';}
- state=s;const isHost=session.id===s.host;
+ state=s;setRenderingMotion(s.started!==null&&s.finished===null);const isHost=session.id===s.host;
  const me=s.devices.find(d=>d.id===session.id);if(!pausePending&&me)paused=!!me.paused;
  $('pause').disabled=pausePending;
  $('pause').textContent=paused?'Resume contribution':'Pause my contribution';
@@ -263,7 +264,7 @@ $('copy').onclick=async()=>{const link=new URL(location.href);link.searchParams.
 window.addEventListener('pagehide',()=>{if(session)navigator.sendBeacon('/api/leave',new Blob([JSON.stringify(session)],{type:'application/json'}));});
 $('code').value=new URL(location.href).searchParams.get('room')||'';
 const leaveRoom=$('leave').onclick;
-$('leave').onclick=()=>{sessionShell(false);connectionLost=false;return leaveRoom();};
+$('leave').onclick=()=>{setRenderingMotion(false);sessionShell(false);connectionLost=false;return leaveRoom();};
 $('session-recover').onclick=$('leave').onclick;
 try{session=JSON.parse(sessionStorage.getItem('borrowed-sky')||'null');if(session){$('lobby').hidden=true;$('room').hidden=false;sessionShell(true);}}catch{session=null;}
 tick();
