@@ -1,11 +1,10 @@
-import {isTheme} from './public/renderer.js';
 import {contributorSnapshot,RATE_WINDOW_MS} from './lib/dashboard.mjs';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {randomBytes, randomUUID} from 'node:crypto';
 import {networkInterfaces} from 'node:os';
 import {pathToFileURL} from 'node:url';
-import {validateConfig, frameRequestLimit, HARD_MAX_REQUEST_BYTES, REQUEST_METADATA_BYTES} from './public/config.js';
+import {validateConfig, configureWorkload, CONFIG_KEYS, frameRequestLimit, HARD_MAX_REQUEST_BYTES, REQUEST_METADATA_BYTES} from './public/config.js';
 
 const fail = (message, status=400) => Object.assign(new Error(message), {status});
 
@@ -32,7 +31,7 @@ function readBody(req, limit) {
 
 export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, maxRequestBytes=HARD_MAX_REQUEST_BYTES, now=Date.now}={}) {
   const renderingConfig = validateConfig(config);
-  const uploadLimit = frameRequestLimit(renderingConfig);
+  const uploadLimit = Math.max(frameRequestLimit(renderingConfig),frameRequestLimit({width:576,height:384}));
   if (!Number.isInteger(maxRequestBytes) || maxRequestBytes < uploadLimit || maxRequestBytes > HARD_MAX_REQUEST_BYTES) {
     throw new Error('Request limit must accommodate configured frames and stay within 8 MiB');
   }
@@ -67,7 +66,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
     return {code:r.code, host:r.host, run:r.run, revision:++r.revision, started:r.started, finished:r.finished,
       recovered:r.recovered, config:r.config,
       network:{sequence:r.eventSequence,firstSequence:r.events[0]?.sequence??r.eventSequence+1,events:r.events},
-      selectedTheme:r.selectedTheme,...contributorSnapshot(r,sampledAt),
+      selectedTheme:r.selectedConfig.theme,selectedConfig:r.selectedConfig,...contributorSnapshot(r,sampledAt),
       frames:r.frames.map(({index,state,device}) => ({index,state,device})),
       completed:r.frames.filter(f => f.state === 'done').length,
       computeMs:r.frames.reduce((n,f) => n+(f.ms||0), 0),
@@ -79,14 +78,15 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
       if (url.pathname.startsWith('/api/')) {
         if (req.method !== 'POST') throw fail('Use POST',405);
         const limit = url.pathname === '/api/result' ? Math.min(uploadLimit,maxRequestBytes) : REQUEST_METADATA_BYTES;
-        const b = JSON.parse(await readBody(req,limit) || '{}');
+        const body=await readBody(req,limit);
+        const b = JSON.parse(body || '{}');
         if (!b || typeof b !== 'object' || Array.isArray(b)) throw fail('Expected a JSON object');
         let result;
         if (url.pathname === '/api/create') {
           if (rooms.size >= 100) throw fail('Server is full. Restart it to clear old rooms.',503);
           let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while (rooms.has(code));
           const id = randomUUID();
-          const r = {code,host:id,devices:new Map(),frames:[],events:[],eventSequence:0,recentCompletions:[],selectedTheme:renderingConfig.theme,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
+          const r = {code,host:id,devices:new Map(),frames:[],events:[],eventSequence:0,recentCompletions:[],selectedConfig:renderingConfig,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
           r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
           activity(r,'joined',id);
           result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
@@ -120,14 +120,14 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 if(b.run!==undefined&&b.run!==r.run) throw fail('Render run changed.',409);
                 d.paused=b.paused;result=snapshot(r);break;
               case '/api/configure':
-                if(b.id!==r.host) throw fail('Only the host can choose a theme.',403);
+                if(b.id!==r.host) throw fail('Only the host can change rendering settings.',403);
                 if(r.started!==null&&r.finished===null) throw fail('Wait for the active render to finish.',409);
-                if(!isTheme(b.theme)) throw fail('Unknown cloud theme');
-                r.selectedTheme=b.theme;result=snapshot(r);break;
+                const patch=Object.fromEntries(CONFIG_KEYS.filter(key=>Object.hasOwn(b,key)).map(key=>[key,b[key]]));
+                r.selectedConfig=configureWorkload(r.selectedConfig,patch);result=snapshot(r);break;
               case '/api/start':
                 if (b.id !== r.host) throw fail('Only the host can start a render.',403);
                 if (r.started !== null && r.finished === null) throw fail('A render is already running.');
-                r.config={...r.config,theme:r.selectedTheme};r.recentCompletions=[];
+                r.config=Object.freeze({...r.selectedConfig});r.recentCompletions=[];
                 r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;
                 for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;}
                 r.frames=Array.from({length:r.config.count},(_,index) => ({index,state:'queued'}));
@@ -147,6 +147,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
               case '/api/result': {
                 const f=assignment(r,d,b);
                 if (!f) throw fail('Lease expired; frame was reassigned.',409);
+                if(Buffer.byteLength(body)>frameRequestLimit(r.config))throw fail('Request too large',413);
                 const pixelCount=r.config.width*r.config.height;
                 if (typeof b.pixels !== 'string' || b.pixels.length !== 4*Math.ceil(pixelCount/3) ||
                     !/^[A-Za-z0-9+/]*={0,2}$/.test(b.pixels) || !Number.isFinite(b.ms) || b.ms < 0 || b.ms > Number.MAX_SAFE_INTEGER) throw fail('Invalid frame');

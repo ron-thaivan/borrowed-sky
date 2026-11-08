@@ -152,18 +152,37 @@ Each assignment has a unique lease token and render-run ID. Authenticated heartb
 
 ## Rendering configuration
 
-Defaults remain 192×128 pixels, 120 frames, and 20 fps. Set `RENDER_CONFIG` to a JSON object before starting the coordinator to override dimensions, frame count, or fps. For example, in PowerShell:
+The host can configure the next render directly in the studio:
+
+| Setting | Choices | Default |
+| --- | --- | --- |
+| Resolution | 192×128, 384×256, 576×384 | 192×128 |
+| Frames | 60, 120, 240 | 120 |
+| Cloud density | Low, Medium, High | Medium |
+| Theme | Sunny Sky, Sunset, Night Sky, Stormy Sky | Sunny Sky |
+| Speed | Slow (10 FPS), Normal (20 FPS), Fast (40 FPS) | Normal |
+| Background | Three complementary presets per theme | Original theme palette |
+
+Density adjusts the cloud noise threshold, while background presets tint only sky colors and retain theme-specific clouds and celestial features. A small worker-rendered settings preview updates before the first run. The default pixels and colors remain unchanged. Speed changes playback timing: a 120-frame loop lasts 12, 6, or 3 seconds. Frame generation still completes one closed movement cycle per animation.
+
+The coordinator stores `selectedConfig` separately from the active run's `config`. Only the authenticated host can edit it, and edits are rejected during rendering. Starting copies the complete configuration into the run; claims and collected frames include dimensions, count, fps, theme, density, and background. Late joiners receive the same settings. Editing the next run never changes a completed preview or download. Contributors see the configuration but cannot edit it.
+
+All nine resolution/frame-count combinations are supported. The largest is 18× the default pixel workload (50.6 MiB of raw indexed frames), and the panel warns about heavier workloads without promising render times. Interactive edits enforce a 64 MiB raw-pixel budget and curated resolution/count/speed options. The GIF encoder preallocates a typed byte buffer instead of retaining a large JavaScript number array, with a 160 MiB export ceiling. Decoded preview images have a 24 MiB cache budget. These controls reduce memory use but cannot guarantee performance on every laptop.
+
+For coordinator operators, `RENDER_CONFIG` still accepts a JSON object before startup. Unchanged custom operator dimensions/count/fps remain supported and are displayed explicitly in the controls. For example, in PowerShell:
 
 ```powershell
 $env:RENDER_CONFIG = '{"width":320,"height":240,"count":120,"fps":20}'
 node server.mjs
 ```
 
-The preview, progress display, worker jobs, upload validation, and GIF dimensions follow this configuration. Dimensions must be integers from 1 to 2048, count from 1 to 600, and fps from 1 to 100, with at most 128 MiB of raw indexed pixels per render. Upload limits allow the exact base64 frame size plus 16 KiB of metadata, under an 8 MiB hard ceiling; other API requests are limited to 16 KiB. These are validation ceilings, not guarantees that a browser can comfortably assemble the largest allowed render. GIF frame timing is rounded to centiseconds.
+The preview, progress display, worker jobs, upload validation, and GIF dimensions follow the active configuration. Operator configurations allow integer dimensions from 1 to 2048, count from 1 to 600, and fps from 1 to 100, with at most 128 MiB of raw indexed pixels per render. The initial upload stream limit accommodates the largest UI preset or operator-configured frame, then authenticated uploads are checked against the active room's exact base64 frame size plus 16 KiB of metadata, under an 8 MiB hard ceiling. Other API requests remain limited to 16 KiB. GIF delays distribute fractional centiseconds across frames (40 FPS alternates 3 and 2 centiseconds), keeping total playback duration correct. Actual playback also depends on the viewer.
+
+Workload tests validate all 972 preset combinations, exercise density/theme/background/speed combinations in independent Node worker threads, compare full-resolution frame samples for each resolution/count pair, and decode every frame of exports for all nine dimension/count pairs including the maximum workload. They also check host permissions, immutable configuration, late joins, ordered collection, and bounded preview memory. This is not an exhaustive render of every frame in all 972 combinations, nor a physical-device or cross-browser-engine determinism certification.
 
 ## Honest performance measurements
 
-The landing page eases scroll effects with refresh-synchronized transforms and stops updating when settled, offscreen, hidden, or inside a rendering room. Completed animation previews cache decoded pixel images and use elapsed-time playback synchronized to the display. The source animation and downloaded GIF remain 20 fps; these UI optimizations do not change the distributed workload or imply a rendering speedup.
+The landing page eases scroll effects with refresh-synchronized transforms and stops updating when settled, offscreen, hidden, or inside a rendering room. Completed animation previews use a bounded decoded-image cache and elapsed-time playback synchronized to the display. Preview and GIF timing follow the selected FPS (20 by default); these UI optimizations do not imply a distributed rendering speedup.
 
 **Wall time** runs from server render start until the last accepted upload. **Total Worker Render Time** is the sum of accepted worker render durations measured with `performance.now()`; it includes OS scheduling, excludes rejected/repeated computation, and is not actual CPU utilization. Device rows show accepted frame count, share of completed work, summed render time, and average time per accepted frame. Durations are reported by workers, not independently measured by the server. **Frame payload** counts raw accepted indexed pixels, excluding the roughly 33% base64 expansion, HTTP/polling overhead, rejected uploads, and final frame download. Browser GIF assembly happens after render wall time and is not included.
 

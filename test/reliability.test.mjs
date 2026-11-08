@@ -92,16 +92,17 @@ test('configured larger frames upload and collect; malformed and oversized bodie
  assert.equal((await call('result',{...h,...job,pixels,padding:'x'.repeat(17000),ms:1})).status,413);
  const chunkedStatus=await new Promise((resolve,reject)=>{
   const req=http.request(`${url}/api/result`,{method:'POST'},res=>{res.resume();res.on('end',()=>resolve(res.statusCode));});
-  req.on('error',reject);req.write('x'.repeat(frameRequestLimit(job)));req.end('x');
+  // Before parsing a room ID, the stream cap must accommodate all UI presets.
+  req.on('error',reject);req.write('x'.repeat(frameRequestLimit({width:576,height:384})));req.end('x');
  });
  assert.equal(chunkedStatus,413);
  assert.equal((await call('result',{...h,...job,pixels,ms:40})).status,200);
  const frames=await call('frames',h);
- assert.deepEqual(frames.config,{width:320,height:240,count:1,fps:25,theme:'sunny'});assert.equal(frames.frames[0],pixels);
+ assert.deepEqual(frames.config,{width:320,height:240,count:1,fps:25,theme:'sunny',density:'medium',background:'original'});assert.equal(frames.frames[0],pixels);
 });
 
 test('configuration bounds preserve defaults and enforce a hard request ceiling',()=>{
- assert.deepEqual(validateConfig(),{width:192,height:128,count:120,fps:20,theme:'sunny'});
+ assert.deepEqual(validateConfig(),{width:192,height:128,count:120,fps:20,theme:'sunny',density:'medium',background:'original'});
  for(const config of [{width:0},{height:1.5},{count:601},{fps:101},{width:2049},{width:2048,height:2048,count:120}])assert.throws(()=>createCoordinator({config}));
  assert.throws(()=>createCoordinator({maxRequestBytes:HARD_MAX_REQUEST_BYTES+1}));
  assert.throws(()=>createCoordinator({maxRequestBytes:100}));

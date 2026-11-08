@@ -2,7 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-import {palette,themes,getPalette} from '../public/renderer.js';
+import {palette,themes,getPalette,backgroundPresets} from '../public/renderer.js';
+import {RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary} from '../public/config.js';
 
 // Exercise the actual browser controller with a minimal DOM; no browser dependency.
 async function browser() {
@@ -11,7 +12,7 @@ async function browser() {
  const element=()=>({children:[],dataset:{},style:{},parentElement:{style:{}},value:'',width:192,height:128,
   getContext:()=>context2d,setAttribute(){},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
- const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,
+ const context=vm.createContext({document:{getElementById:get,createElement:element,querySelectorAll:()=>[]},palette,themes,getPalette,backgroundPresets,RESOLUTIONS,FRAME_COUNTS,SPEEDS,workloadSummary,
   drawDashboard(){},dashboardConnection(){},resetNetwork(){},Worker:class {postMessage(){} terminate(){}},
   URL,Uint8Array,Uint8ClampedArray,AbortSignal,Blob,console,
   location:{href:'http://localhost:3000/',hostname:'localhost'},
@@ -81,5 +82,32 @@ test('heartbeat retains active lease proof without overwriting server-backed pau
  assert.ok(!Object.hasOwn(payload,'paused'));
  assert.equal(run('activeJob.token'),'lease');
  assert.equal(run('busy'),true);
+});
+
+test('workload panel shows synchronized settings, locks contributors and active runs, and keeps finished palettes',async()=>{
+ const {draw,run,get}=await browser();
+ const config={width:192,height:128,count:120,fps:20,theme:'sunny',density:'medium',background:'original'};
+ const selectedConfig={width:576,height:384,count:240,fps:40,theme:'night',density:'high',background:'deep'};
+ draw(snapshot(config,{selectedConfig,selectedTheme:'night'}));
+ assert.equal(get('theme-options').disabled,true);
+ assert.equal(get('workload-resolution').value,'576x384');assert.equal(get('workload-count').value,'240');
+ assert.equal(get('workload-density').value,'high');assert.equal(get('workload-background').value,'deep');assert.equal(get('workload-speed').value,'40');
+ assert.match(get('workload-summary').textContent,/18.0×/);assert.match(get('workload-warning').textContent,/Large workload/);
+ run("session={id:'host'}");draw(snapshot(config,{revision:2,selectedConfig,selectedTheme:'night'}));
+ assert.equal(get('theme-options').disabled,false);
+ draw(snapshot(selectedConfig,{revision:3,selectedConfig,selectedTheme:'night',started:1000}));assert.equal(get('theme-options').disabled,true);
+ // Avoid triggering host collection; inspect a completed run as a contributor.
+ run("session={id:'guest'}");draw(snapshot(selectedConfig,{revision:4,selectedConfig:config,selectedTheme:'sunny',started:1000,finished:2000}));
+ const image=run('imageFor(new Uint8Array(576*384).fill(20))');
+ assert.deepEqual([...image.data.slice(0,3)],getPalette('night','deep')[20]);
+ assert.match(get('workload-summary').textContent,/Next render/);
+});
+
+test('large preview playback stays within its decoded-image memory budget',async()=>{
+ const {draw,run}=await browser();
+ draw(snapshot({width:576,height:384,count:240,fps:40,theme:'sunny',density:'medium',background:'original'}));
+ run('for(let i=0;i<40;i++)imageFor(new Uint8Array(576*384).fill(i))');
+ assert.ok(run('cachedImageBytes<=24*1024*1024'));
+ assert.ok(run('frameImages.size<40'));
 });
 

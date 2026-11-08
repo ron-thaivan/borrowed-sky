@@ -22,9 +22,25 @@ function makePalette({sky,cloud,accent}) {
  });
 }
 const palettes=Object.fromEntries(Object.entries(ramps).map(([key,ramp])=>[key,makePalette(ramp)]));
-export function getPalette(theme='sunny') {
+export const backgroundPresets=Object.freeze({
+ sunny:[{id:'original',name:'Clear blue',color:'#5eb1ed'},{id:'soft',name:'Pale aqua',color:'#a2dcd9'},{id:'deep',name:'Deep azure',color:'#326fa7'}],
+ sunset:[{id:'original',name:'Rose dusk',color:'#c05892'},{id:'soft',name:'Warm peach',color:'#edbb99'},{id:'deep',name:'Deep plum',color:'#674576'}],
+ night:[{id:'original',name:'Midnight',color:'#1a1e41'},{id:'soft',name:'Moonlit lavender',color:'#737b9e'},{id:'deep',name:'Deep indigo',color:'#172654'}],
+ storm:[{id:'original',name:'Slate',color:'#3a4654'},{id:'soft',name:'Silver mist',color:'#9bafb5'},{id:'deep',name:'Deep teal',color:'#294b59'}]
+});
+export const isBackground=value=>['original','soft','deep'].includes(value);
+export const isDensity=value=>['low','medium','high'].includes(value);
+export function getPalette(theme='sunny',background='original') {
  if(!isTheme(theme))throw new Error('Unknown cloud theme');
- return palettes[theme];
+ if(!isBackground(background))throw new Error('Unknown background');
+ const key=theme+':'+background;
+ if(background==='original')return palettes[theme];
+ if(!palettes[key]){
+  const hex=backgroundPresets[theme].find(p=>p.id===background).color;
+  const tint=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
+  palettes[key]=palettes[theme].map((rgb,i)=>i<128?rgb.map((c,k)=>Math.round(mix(c,tint[k],.72))):rgb);
+ }
+ return palettes[key];
 }
 // Compatibility for callers that omit a theme.
 export const palette=getPalette();
@@ -55,12 +71,14 @@ function noise(field,x,y,layer) {
 // Smooth closed drift path using specified IEEE-754 arithmetic.
 // Math.sin/cos are implementation-approximated and can vary between engines.
 function wave(t) {t=((t%1)+1)%1;const x=t*4;return x<2?x*(2-x):-(x-2)*(4-x);}
-export function renderFrame({width,height,index,count,theme='sunny'}) {
+export function renderFrame({width,height,index,count,theme='sunny',density:cloudDensity='medium',background='original'}) {
  if(!isTheme(theme))throw new Error('Unknown cloud theme');
+ if(!isDensity(cloudDensity)||!isBackground(background))throw new Error('Invalid cloud appearance');
  const out=new Uint8Array(width*height),phase=((index%count)+count)%count/count;
  const driftX=wave(phase+.25)*.65,driftY=wave(phase)*.65;
  const fields=Array.from({length:5},(_,octave)=>prepareOctave(width,height,octave,driftX,driftY));
  const storm=theme==='storm',night=theme==='night',sunset=theme==='sunset';
+ const threshold=(storm?.43:.46)+(cloudDensity==='low'?.065:cloudDensity==='high'?-.065:0);
  // One short bolt per loop; frame/config alone control timing and shape.
  const lightning=storm&&phase>=.68&&phase<.70;
  for(let y=0;y<height;y++) for(let x=0;x<width;x++) {
@@ -69,7 +87,7 @@ export function renderFrame({width,height,index,count,theme='sunny'}) {
   for(let layer=0;layer<96;layer++) {
    let sum=0;
    for(let octave=0;octave<5;octave++)sum+=fields[octave].amplitude*noise(fields[octave],x,y,layer);
-   const d=Math.max(0,sum-(storm?.43:.46))*2.7/8; density+=d*(1-weight);weight=Math.min(.95,weight+d*.22);
+   const d=Math.max(0,sum-threshold)*2.7/8; density+=d*(1-weight);weight=Math.min(.95,weight+d*.22);
   }
   let color=Math.round(12+v*110);
   const orbY=sunset?.72:.23,orbX=.77;
