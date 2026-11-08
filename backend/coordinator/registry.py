@@ -7,6 +7,46 @@ import threading
 
 # Import time so we can record when devices connect and last report activity occurs.
 import time
+import math
+
+
+MAX_DEVICES = 128
+MAX_SESSIONS_PER_DEVICE = 32
+MAX_MEMORY_MB = 16 * 1024 * 1024
+
+
+def validate_identifier(value, name, limit=128):
+    if not isinstance(value, str) or not value.strip() or len(value) > limit or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError(f"{name} must be a nonempty string of at most {limit} characters")
+
+
+def validate_resources(resources):
+    fields = {"os_name", "os_version", "architecture", "logical_cores", "physical_cores",
+              "total_memory_mb", "available_memory_mb", "cpu_percent", "gpu"}
+    if not isinstance(resources, dict) or not set(resources).issubset(fields):
+        raise ValueError("Resource information has unsupported fields")
+    result = copy.deepcopy(resources)
+    for key in ("os_name", "os_version", "architecture"):
+        if key in result and result[key] is not None:
+            validate_identifier(result[key], key)
+    for key in ("logical_cores", "physical_cores"):
+        value = result.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 1024):
+            raise ValueError(f"{key} must be an integer from 1 to 1024 or null")
+    for key in ("total_memory_mb", "available_memory_mb", "cpu_percent"):
+        value = result.get(key)
+        upper = 100 if key == "cpu_percent" else MAX_MEMORY_MB
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= upper or not math.isfinite(value)):
+            raise ValueError(f"{key} must be finite and between 0 and {upper}, or null")
+    logical, physical = result.get("logical_cores"), result.get("physical_cores")
+    if logical is not None and physical is not None and physical > logical:
+        raise ValueError("Physical core count cannot exceed logical core count")
+    total, available = result.get("total_memory_mb"), result.get("available_memory_mb")
+    if total is not None and available is not None and available > total:
+        raise ValueError("Available memory cannot exceed total memory")
+    if "gpu" in result and (not isinstance(result["gpu"], dict) or set(result["gpu"]) != {"available"} or type(result["gpu"]["available"]) is not bool):
+        raise ValueError("gpu must contain only an available boolean")
+    return result
 
 
 # Define the central inventory that HQ uses to track physical devices.
@@ -22,16 +62,21 @@ class DeviceRegistry:
     # Add a worker connection to a physical device, or update an existing device record.
     def register_device(self, device_id, session_id, hostname):
         # Reject missing or invalid identifiers before changing the inventory.
-        if not device_id or not session_id:
-            raise ValueError("Device ID and session ID are required")
+        validate_identifier(device_id, "device_id")
+        validate_identifier(session_id, "session_id")
+        validate_identifier(hostname, "hostname", 255)
 
         # Acquire the lock before reading or changing shared inventory data.
         with self._lock:
+            if any(session_id in item["sessions"] for item in self._devices.values()):
+                raise ValueError("Session ID is already registered")
             # Look for an existing physical-device record.
             device = self._devices.get(device_id)
 
             # Create a new record only when this physical device has never connected before.
             if device is None:
+                if len(self._devices) >= MAX_DEVICES:
+                    raise ValueError("Device registry is full")
                 # Store hardware information once per physical device, not once per process.
                 device = {
                     "device_id": device_id,
@@ -45,6 +90,12 @@ class DeviceRegistry:
 
                 # Add the newly created physical-device record to the inventory.
                 self._devices[device_id] = device
+
+            if len(device["sessions"]) >= MAX_SESSIONS_PER_DEVICE:
+                raise ValueError("Device session limit reached")
+            if not device["sessions"]:
+                # A returning device must report current capacity before scheduling.
+                device["resources"] = {}
 
             # Refresh the hostname in case the device's reported name has changed.
             device["hostname"] = hostname
@@ -61,8 +112,7 @@ class DeviceRegistry:
     # Save a worker's initial hardware report or a later resource update.
     def update_resources(self, device_id, session_id, resources):
         # Require a dictionary because protocol resource payloads are JSON objects.
-        if not isinstance(resources, dict):
-            raise ValueError("Resource information must be a dictionary")
+        validated = validate_resources(resources)
 
         # Acquire the lock before accessing the shared device inventory.
         with self._lock:
@@ -74,7 +124,7 @@ class DeviceRegistry:
                 raise ValueError("Resource report came from an unregistered session")
 
             # Replace the previous report with a copy of the newest resource information.
-            device["resources"] = copy.deepcopy(resources)
+            device["resources"] = validated
 
             # Record that the worker is still communicating with HQ.
             device["last_seen"] = time.time()

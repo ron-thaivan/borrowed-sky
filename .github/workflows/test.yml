@@ -20,3 +20,16 @@ jobs:
           node-version: ${{ matrix.node }}
       # No package dependencies or installation step are required.
       - run: npm test
+  python:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - run: python -m pytest -q

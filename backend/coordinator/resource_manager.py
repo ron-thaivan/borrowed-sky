@@ -4,6 +4,7 @@ import threading
 
 # Import math to reject invalid numeric resource requirements.
 import math
+from backend.coordinator.registry import MAX_MEMORY_MB, validate_identifier
 
 
 # Define the manager responsible for calculating and reserving device resources.
@@ -32,8 +33,9 @@ class ResourceManager:
             raise ValueError(f"{field_name} must be a number")
 
         # Reject zero, negative, infinite, and NaN resource requirements.
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError(f"{field_name} must be a finite positive number")
+        upper = 1024 if field_name == "cpu_cores" else MAX_MEMORY_MB
+        if not 0 < value <= upper or not math.isfinite(value):
+            raise ValueError(f"{field_name} must be a finite positive number no greater than {upper}")
 
     # Calculate the safe allocatable capacity for one physical device.
     def _calculate_capacity(self, device):
@@ -50,18 +52,18 @@ class ResourceManager:
         available_memory_mb = resources.get("available_memory_mb", 0)
 
         # Reject invalid CPU-core values instead of treating them as usable capacity.
-        if isinstance(logical_cores, bool) or not isinstance(logical_cores, (int, float)) or logical_cores <= 0:
+        if isinstance(logical_cores, bool) or not isinstance(logical_cores, int) or not 1 <= logical_cores <= 1024:
             logical_cores = 0
 
         # Reject invalid CPU utilization values and conservatively treat them as fully busy.
-        if isinstance(cpu_percent, bool) or not isinstance(cpu_percent, (int, float)) or not math.isfinite(cpu_percent):
+        if isinstance(cpu_percent, bool) or not isinstance(cpu_percent, (int, float)) or not 0 <= cpu_percent <= 100 or not math.isfinite(cpu_percent):
             cpu_percent = 100
 
         # Keep CPU utilization within its valid percentage range.
         cpu_percent = max(0.0, min(100.0, float(cpu_percent)))
 
         # Reject invalid memory values instead of reporting negative or unusable RAM.
-        if isinstance(available_memory_mb, bool) or not isinstance(available_memory_mb, (int, float)) or available_memory_mb < 0:
+        if isinstance(available_memory_mb, bool) or not isinstance(available_memory_mb, (int, float)) or not 0 <= available_memory_mb <= MAX_MEMORY_MB or not math.isfinite(available_memory_mb):
             available_memory_mb = 0
 
         # Calculate how many logical cores can be allocated without exceeding the CPU target.
@@ -137,8 +139,8 @@ class ResourceManager:
         self._validate_requirement(memory_mb, "memory_mb")
 
         # Reject missing task identifiers before creating a reservation.
-        if not isinstance(task_id, str) or not task_id:
-            raise ValueError("task_id must be a non-empty string")
+        validate_identifier(task_id, "task_id")
+        validate_identifier(device_id, "device_id")
 
         # Acquire the lock so two tasks cannot reserve the same remaining capacity.
         with self.lock:
@@ -186,6 +188,8 @@ class ResourceManager:
                 if task_id in device_reservations:
                     # Remove the task's reservation so its resources become available again.
                     del device_reservations[task_id]
+                    if not device_reservations:
+                        del self.reservations[device_id]
 
                     # Confirm that the reservation was successfully released.
                     return True
@@ -208,6 +212,8 @@ class ResourceManager:
 
                 # Calculate the device's remaining allocatable capacity.
                 capacity = self.get_device_capacity(device["device_id"])
+                if capacity is None:
+                    continue
 
                 # add device identity and capacity info to pool
                 pool.append({

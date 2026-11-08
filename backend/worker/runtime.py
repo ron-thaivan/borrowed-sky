@@ -1,246 +1,108 @@
-
-# Import select so the worker can check for incoming messages without blocking its heartbeat loop.
-import select
-
-# Import threading so task cancellation can be communicated safely.
-import threading
-
-# Import time for heartbeat and resource-update scheduling.
-import time
-
-# Import queue so background task threads can return results to the network loop.
+"""One execution slot per connection; network heartbeats run independently."""
 import queue
+import select
+import threading
+import time
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 
-# Import ThreadPoolExecutor so task execution does not block network communication.
-from concurrent.futures import ThreadPoolExecutor
+from backend.common.protocol import ProtocolError, create_message, receive_message, send_message
+from backend.common.workload import validate_workload
+from backend.worker.executor import TaskCancelled, execute_task
 
-# Import the shared protocol helpers used by HQ and workers.
-from backend.common.protocol import create_message, receive_message, send_message
-
-# Import the supported task executor and its cancellation exception.
-from backend.worker.executor import execute_task, TaskCancelled
-
-
-# Define the worker's communication intervals.
 HEARTBEAT_INTERVAL = 5
 RESOURCE_UPDATE_INTERVAL = 15
+MESSAGE_TIMEOUT = 5
 
 
-# Run the worker's main communication and task-processing loop.
 def run_worker_loop(connection, device_id, session_id, collect_resources):
-    # Create a thread pool that executes one task at a time on this worker.
     executor = ThreadPoolExecutor(max_workers=1)
-
-    # Create a queue for task results produced by background execution threads.
     completed_tasks = queue.Queue()
-
-    # Track cancellation events for currently running or queued tasks.
-    cancellation_events = {}
-
-    # Track task IDs so the worker does not accept duplicate submissions.
-    active_tasks = set()
-
-    # Record when the next heartbeat should be sent.
+    # Never hide unbounded queued work behind the single execution thread.
+    active = {}
     next_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL
-
-    # Record when the next resource report should be sent.
     next_resource_update = time.monotonic() + RESOURCE_UPDATE_INTERVAL
+    connection.settimeout(MESSAGE_TIMEOUT)
 
-    # Define a helper that creates and sends messages from the worker.
-    def send_worker_message(message_type, payload):
-        # Construct a message using this worker's persistent device and session IDs.
-        message = create_message(message_type, device_id, session_id, payload)
+    def send(message_type, payload):
+        send_message(connection, create_message(message_type, device_id, session_id, payload))
 
-        # Transmit the framed message to HQ.
-        send_message(connection, message)
-
-    # Define a callback that collects a completed background task.
-    def collect_task_result(task_id, future):
-        # Retrieve the task's result or capture its execution error.
+    def collect(task_id, token, future):
+        outcome = {"task_id": task_id, "assignment_token": token}
         try:
-            # Read the value returned by the task executor.
-            result = future.result()
-
-            # Place a successful result into the network loop's queue.
-            completed_tasks.put({
-                "task_id": task_id,
-                "status": "completed",
-                "result": result,
-            })
-
-        # Handle tasks that were cancelled during execution.
-        except TaskCancelled as error:
-            # Queue the cancellation outcome for HQ.
-            completed_tasks.put({
-                "task_id": task_id,
-                "status": "cancelled",
-                "error": str(error),
-            })
-
-        # Handle all other task execution errors.
+            outcome.update(message_type="JOB_RESULT", result=future.result())
+        except (TaskCancelled, CancelledError):
+            outcome.update(message_type="JOB_CANCELLED", error="Task was cancelled")
         except Exception as error:
-            # Queue the failure outcome for HQ.
-            completed_tasks.put({
-                "task_id": task_id,
-                "status": "failed",
-                "error": str(error),
-            })
+            outcome.update(message_type="JOB_FAILED", error=str(error)[:500])
+        completed_tasks.put(outcome)
 
-    # Keep the worker connected until HQ or the network closes the connection.
     try:
-        # Begin the worker's main event loop.
         while True:
-            # Record the current monotonic time.
             now = time.monotonic()
-
-            # Send a heartbeat when its deadline has arrived.
             if now >= next_heartbeat:
-                # Tell HQ that this worker is still alive.
-                send_worker_message("HEARTBEAT", {})
-
-                # Schedule the next heartbeat.
+                send("HEARTBEAT", {})
                 next_heartbeat = now + HEARTBEAT_INTERVAL
-
-            # Send updated hardware information when its deadline has arrived.
             if now >= next_resource_update:
-                # Collect the latest CPU, memory, and hardware information.
-                resources = collect_resources()
-
-                # Send the updated resource report to HQ.
-                send_worker_message("RESOURCE_UPDATE", {"resources": resources})
-
-                # Schedule the next resource report.
+                # Temporary probe failures must not kill healthy workers.
+                try:
+                    resources = collect_resources()
+                except Exception:
+                    resources = None
+                if isinstance(resources, dict):
+                    send("RESOURCE_UPDATE", {"resources": resources})
                 next_resource_update = now + RESOURCE_UPDATE_INTERVAL
-
-            # Send all task results waiting in the completion queue.
-            while not completed_tasks.empty():
-                # Retrieve the next completed task.
-                completed = completed_tasks.get()
-
-                # Remove the task from the active task set.
-                active_tasks.discard(completed["task_id"])
-
-                # Remove its cancellation event from the tracking dictionary.
-                cancellation_events.pop(completed["task_id"], None)
-
-                # Send the successful result to HQ.
-                if completed["status"] == "completed":
-                    # Include the task ID and calculated result.
-                    send_worker_message("JOB_RESULT", {
-                        "task_id": completed["task_id"],
-                        "result": completed["result"],
-                    })
-
-                # Tell HQ when a task was cancelled.
-                elif completed["status"] == "cancelled":
-                    # Include the task ID and cancellation explanation.
-                    send_worker_message("JOB_CANCELLED", {
-                        "task_id": completed["task_id"],
-                        "error": completed["error"],
-                    })
-
-                # Tell HQ when task execution failed.
-                else:
-                    # Include the task ID and error message.
-                    send_worker_message("JOB_FAILED", {
-                        "task_id": completed["task_id"],
-                        "error": completed["error"],
-                    })
-
-            # Calculate the time remaining until the next scheduled message.
-            timeout = min(
-                max(0, next_heartbeat - time.monotonic()),
-                max(0, next_resource_update - time.monotonic()),
-                0.25,
-            )
-
-            # Wait briefly for HQ to send a task or cancellation request.
+            while True:
+                try:
+                    completed = completed_tasks.get_nowait()
+                except queue.Empty:
+                    break
+                task_id = completed["task_id"]
+                record = active.get(task_id)
+                if record is None or record[0] != completed["assignment_token"]:
+                    continue
+                active.pop(task_id)
+                message_type = completed.pop("message_type")
+                send(message_type, completed)
+            timeout = max(0, min(next_heartbeat - time.monotonic(),
+                                 next_resource_update - time.monotonic(), .25))
             readable, _, _ = select.select([connection], [], [], timeout)
-
-            # Continue the loop when no incoming message is available.
             if not readable:
                 continue
-
-            # Receive one complete framed message from HQ.
+            # Incomplete messages time out instead of blocking all heartbeats.
             message = receive_message(connection)
-
-            # Exit when the connection has been closed by HQ.
-            if message is None:
-                break
-
-            # Read the message type from the protocol envelope.
-            message_type = message["message_type"]
-
-            # Read the message payload from the protocol envelope.
-            payload = message.get("payload", {})
-
-            # Handle a new task submission from HQ.
-            if message_type == "JOB_SUBMIT":
-                # Extract the task ID.
-                task_id = payload.get("task_id")
-
-                # Extract the requested task type.
-                task_type = payload.get("task_type")
-
-                # Extract the task's operation-specific input.
-                task_payload = payload.get("task_payload")
-
-                # Reject malformed or duplicate task submissions.
-                if not task_id or task_id in active_tasks or not isinstance(task_payload, dict):
-                    # Inform HQ that the submission could not be accepted.
-                    send_worker_message("JOB_FAILED", {
-                        "task_id": task_id,
-                        "error": "Invalid or duplicate task submission.",
-                    })
-
-                    # Skip the remainder of this message.
-                    continue
-
-                # Create a cancellation event for the new task.
-                cancel_event = threading.Event()
-
-                # Store the cancellation event under the task ID.
-                cancellation_events[task_id] = cancel_event
-
-                # Mark the task as active on this worker.
-                active_tasks.add(task_id)
-
-                # Submit the task to the background executor.
-                future = executor.submit(
-                    execute_task,
-                    task_type,
-                    task_payload,
-                    cancel_event,
-                )
-
-                # Register a callback that queues the task's eventual outcome.
-                future.add_done_callback(
-                    lambda completed_future, current_id=task_id:
-                    collect_task_result(current_id, completed_future)
-                )
-
-                # Tell HQ that the worker accepted the task.
-                send_worker_message("JOB_ACCEPTED", {"task_id": task_id})
-
-            # Handle a cancellation request from HQ.
-            elif message_type == "JOB_CANCEL":
-                # Extract the task ID to cancel.
-                task_id = payload.get("task_id")
-
-                # Find the cancellation event for that task.
-                cancel_event = cancellation_events.get(task_id)
-
-                # Signal the task to stop if it is currently known to this worker.
-                if cancel_event is not None:
-                    # Set the event so the executor can detect cancellation.
-                    cancel_event.set()
-
-    # Handle normal socket shutdown and communication errors.
+            if message["device_id"] != "hq" or message["session_id"] != session_id:
+                raise ProtocolError("Coordinator message belongs to another session")
+            message_type, payload = message["message_type"], message["payload"]
+            if message_type == "ERROR":
+                continue
+            if message_type not in {"JOB_SUBMIT", "JOB_CANCEL"}:
+                raise ProtocolError("Unexpected coordinator message")
+            task_id, token = payload.get("task_id"), payload.get("assignment_token")
+            if any(not isinstance(value, str) or not value or len(value) > 128
+                   for value in (task_id, token)):
+                raise ProtocolError("Assignment needs a task ID and token")
+            if message_type == "JOB_CANCEL":
+                record = active.get(task_id)
+                if record is not None and record[0] == token:
+                    record[1].set()
+                continue
+            if task_id in active and active[task_id][0] == token:
+                # Duplicate delivery must not fail or execute a running task twice.
+                continue
+            try:
+                task_payload = validate_workload(payload.get("task_type"), payload.get("task_payload"))
+                if active:
+                    raise ValueError("Worker session is busy")
+            except ValueError as error:
+                send("JOB_FAILED", {"task_id": task_id, "assignment_token": token, "error": str(error)[:500]})
+                continue
+            cancel_event = threading.Event()
+            active[task_id] = (token, cancel_event)
+            future = executor.submit(execute_task, payload["task_type"], task_payload, cancel_event)
+            future.add_done_callback(lambda result, ident=task_id, lease=token: collect(ident, lease, result))
+            # Results are drained after this ACK, including immediate SUM_RANGE results.
+            send("JOB_ACCEPTED", {"task_id": task_id, "assignment_token": token})
     finally:
-        # Request cancellation of tasks that have not yet completed.
-        for cancel_event in cancellation_events.values():
-            # Signal each task's cancellation event.
+        for _, cancel_event in active.values():
             cancel_event.set()
-
-        # Shut down the executor without blocking the network cleanup indefinitely.
-        executor.shutdown(wait=False, cancel_futures=True)
+        executor.shutdown(wait=True, cancel_futures=True)

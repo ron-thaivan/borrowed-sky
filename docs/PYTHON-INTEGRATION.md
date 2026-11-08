@@ -1,5 +1,7 @@
 # Python backend comparison and Node integration
 
+This document records the earlier browser-compatible port into Node. The later Python prototype repairs are documented in [`backend/README.md`](../backend/README.md); they keep the installed TCP workers separate from the website and do not replace the Node coordinator. The source comparison and verification below describe the original integration, not the current Python prototype implementation.
+
 Compared `origin/thapas2-branch` with main at `3c16159`. The Python branch was read with `git show`; it was not merged, modified or deleted.
 
 ## Source review and mapping

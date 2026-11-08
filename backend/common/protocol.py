@@ -6,6 +6,7 @@ import json
 import struct
 import socket
 import time
+import math
 
 # every msg and connection session gets a key
 import uuid
@@ -44,7 +45,7 @@ class ProtocolError(Exception):
 def create_message(message_type, device_id, session_id, payload=None):
 
     # throw error if the message type is invalid
-    if message_type not in MESSAGE_TYPES:
+    if not isinstance(message_type, str) or message_type not in MESSAGE_TYPES:
         raise ProtocolError(f"Unsupported message type: {message_type}")
 
 
@@ -87,25 +88,44 @@ def validate_message(message):
         raise ProtocolError(f"Missing fields: {sorted(missing_fields)}")
 
     # ensure the correct protocol version
-    if message["protocol_version"] != PROTOCOL_VERSION:
+    if type(message["protocol_version"]) is not int or message["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError("Unsupported protocol version")
 
     # reject unknown
-    if message["message_type"] not in MESSAGE_TYPES:
+    if not isinstance(message["message_type"], str) or message["message_type"] not in MESSAGE_TYPES:
         raise ProtocolError("Unknown message type")
 
     # check over the key value types
     for field in ("message_id", "device_id", "session_id"):
-        if not isinstance(message[field], str) or not message[field]:
+        if not isinstance(message[field], str) or not message[field].strip() or len(message[field]) > 128 or any(ord(c) < 32 or ord(c) == 127 for c in message[field]):
             raise ProtocolError(f"Invalid {field}")
 
     
-    if isinstance(message["timestamp"], bool) or not isinstance(message["timestamp"], (int, float)):
+    timestamp = message["timestamp"]
+    if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not 0 <= timestamp <= 1e12 or not math.isfinite(timestamp):
         raise ProtocolError("Invalid timestamp")
 
     # make sure that the message is an object
     if not isinstance(message["payload"], dict):
         raise ProtocolError("Payload must be a JSON object")
+
+    def check_json(value, depth=0):
+        if depth > 32:
+            raise ProtocolError("Message nesting is too deep")
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if not isinstance(key, str):
+                    raise ProtocolError("JSON keys must be strings")
+                check_json(child, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                check_json(child, depth + 1)
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise ProtocolError("Non-finite JSON values are not supported")
+        elif value is not None and not isinstance(value, (str, int, float, bool)):
+            raise ProtocolError("Unsupported JSON value")
+
+    check_json(message)
 
     # return validated message
     return message
@@ -118,7 +138,10 @@ def encode_message(message):
     validate_message(message)
 
     # Serialize the dictionary as compact JSON and encode it as UTF-8 bytes.
-    payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
+    try:
+        payload = json.dumps(message, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError) as error:
+        raise ProtocolError("Message cannot be encoded as JSON") from error
 
     # Reject an outgoing payload that exceeds our protocol's maximum message size.
     if len(payload) > MAX_MESSAGE_SIZE:
@@ -169,9 +192,11 @@ def receive_message(sock):
 
     # Decode the UTF-8 payload and parse its JSON representation.
     try:
-        message = json.loads(payload.decode("utf-8"))
+        def invalid_constant(value):
+            raise ValueError(f"Invalid JSON constant: {value}")
+        message = json.loads(payload.decode("utf-8"), parse_constant=invalid_constant)
     # Convert invalid UTF-8 or malformed JSON into a protocol-specific error.
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
         raise ProtocolError("Malformed JSON payload") from error
 
     # Validate the parsed message before returning it to application code.

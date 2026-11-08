@@ -2,6 +2,7 @@
 
 # Import argparse so the user can choose the computer's operating mode.
 import argparse
+from backend.common.protocol import ProtocolError
 
 # Import the HQ server startup function.
 from backend.coordinator.main import start_hq
@@ -27,15 +28,16 @@ def main():
     # Parse the command-line arguments supplied by the user.
     args = parser.parse_args()
 
-    # Start the TCP server when this computer is configured as the HQ.
-    if args.role == "hq":
-        # Listen on all network interfaces so other computers can connect.
-        start_hq(host="0.0.0.0", port=args.port)
-
-    # Start the TCP client when this computer is configured as a worker.
-    elif args.role == "worker":
-        # Connect this worker to the specified HQ address and port.
-        connect_worker(args.hq, args.port)
+    try:
+        # Start the TCP server when this computer is configured as the HQ.
+        if args.role == "hq":
+            # Listen on all network interfaces so other computers can connect.
+            start_hq(host="0.0.0.0", port=args.port)
+        else:
+            # Connect this worker to the specified HQ address and port.
+            connect_worker(args.hq, args.port)
+    except (ValueError, OSError, ConnectionError, ProtocolError) as error:
+        parser.exit(1, f"Python prototype stopped: {error}\n")
 
 
 # Run the startup function only when this file is executed as the program entry point.
