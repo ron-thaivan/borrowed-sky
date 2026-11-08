@@ -216,3 +216,29 @@ The themes and live dashboard are integrated on commit 7ca2ee522c43d884f66278d96
 All 26 tests pass. The optimized themed renderer is checked pixel-for-pixel against a frozen pre-optimization themed fixture for all four environments, sampled full-size frames, and complete small loops. The original pre-theme fixture is retained for provenance. The theme feature intentionally changed the old palette and drift path; optimization must preserve the themed output, not revert it.
 
 Browser integration check: two sessions completed a 320×240 Sunset render (60/60 frames), maintained accurate dashboard shares, restored a paused contributor after reload, resumed it, and generated borrowed-sky-sunset.gif with no captured browser console errors. These sessions share one physical machine.
+# Performance benchmarking and analytics
+
+The host's **Performance lab** records every completed render automatically. It shows the latest one-, two-, and three-device measurements, bar charts for the last eight runs, a full history table, baseline selection, and a JSON download. Empty configurations show no measured result. History is bounded to the most recent 50 runs **per room**, held in coordinator memory; it survives browser refreshes with the same host session, but not a coordinator restart. Export JSON before restarting. No database or new dependency is required.
+
+Each record freezes the run ID, start/completion timestamps, complete rendering configuration (resolution, animation frame count, playback FPS, theme), renderer workload version, accepted frame count, participating browser identities, wall time, accepted worker time, raw payload bytes, average frame processing time, full-run throughput, and any confirmed test series. Only identities that supplied at least one accepted frame count as participating; this is not proof of distinct physical laptops. Rejected uploads and duplicate results never add credit or history. No frame buffers or authentication secrets are stored in history.
+
+The existing definitions remain unchanged:
+
+- **Wall time:** coordinator start to last accepted upload, including scheduling, coordination and transfer; excludes subsequent GIF assembly.
+- **Worker time:** sum of accepted worker-measured render durations, including OS scheduling; excludes rejected/repeated work and is not CPU utilization.
+- **Accepted frame payload:** raw indexed pixel bytes, excluding base64, HTTP, rejected uploads and the GIF.
+- **Run frames/s:** accepted frame count divided by wall seconds; distinct from the live contributor dashboard's rolling five-second rate. Zero-duration runs show an unavailable rate.
+- **Average frame time:** summed accepted worker duration divided by accepted frame count.
+
+## Comparing multiple laptops
+
+1. Start the coordinator with `npm start`. Create a room on the baseline laptop. Open the coordinator's printed Wi-Fi URL on additional laptops when needed; each uses its own browser session and joins the same room code.
+2. Keep the same theme, dimensions, animation count, playback FPS, coordinator, network, power settings, browser settings and background load. Use the same warm-up policy. Enter a descriptive test series in Performance lab and confirm the conditions **before each measured run**.
+3. Render with only the baseline laptop contributing. Then join a second laptop, confirm the same series/conditions, and render again; repeat with three. Starting a render resumes every joined device, so leave unused devices out. Keep the baseline session open so its identity remains the same. Repeat configurations to assess variability.
+4. Select a single-device baseline, or retain the first eligible baseline per run. Speedup is **single-device wall time / multi-device wall time**. Time saved is **(1 - multi-device wall time / single-device wall time) × 100%**, which can be negative for a slowdown.
+5. A speedup is shown only for identical full configurations and workload versions, positive wall durations, the same host-confirmed test series, inclusion of the baseline identity, and no recovered assignments in either run. Conditions are attested by the host, not independently verified. Ordinary runs still retain all measured metrics without a speedup claim. Comparing two tabs on one laptop is a functional test, not a physical multi-device benchmark.
+
+History uses authenticated host-only `POST /api/benchmarks`, with optional `baselineId`; a start request can include `benchmark: {series, confirmed: true}`. This metadata is frozen at start and never changes frame assignment, heartbeat or recovery logic. Collection happens once on final accepted upload. Workload version lives in `lib/benchmarks.mjs` and must be bumped when the rendering algorithm or timed worker workload changes.
+
+Run `node --test` to verify accepted-only metric collection, permissions, immutable history, bounded retention, workload/conditions comparison, correct speedup/slowdown calculations, and existing rendering/recovery behavior. UI implementation is in `public/benchmarks.js` and `public/benchmarks.css`, wired through `public/app.js` and `public/index.html`; server integration is in `server.mjs` and tests in `test/benchmarks.test.mjs`.
+

@@ -1,3 +1,4 @@
+import {benchmarkConditions,recordBenchmark,benchmarkHistory,HISTORY_LIMIT} from './lib/benchmarks.mjs';
 import {contributorSnapshot,RATE_WINDOW_MS} from './lib/dashboard.mjs';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
@@ -87,6 +88,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
           let code; do {code=randomBytes(3).toString('hex').toUpperCase();} while (rooms.has(code));
           const id = randomUUID();
           const r = {code,host:id,devices:new Map(),frames:[],events:[],eventSequence:0,recentCompletions:[],selectedConfig:renderingConfig,run:null,revision:0,started:null,finished:null,recovered:0,config:renderingConfig};
+          r.benchmarks=[];r.benchmarkConditions=null;
           r.devices.set(id,newDevice(id,b.name || 'Host laptop')); rooms.set(code,r);
           activity(r,'joined',id);
           result = {id,secret:r.devices.get(id).secret,...snapshot(r)};
@@ -104,6 +106,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
             // Sweep BEFORE refreshing presence or renewing: expired leases cannot be revived.
             sweep(r);if(!d.online)activity(r,'reconnected',d.id);d.seen=now(); d.online=true;
             switch (url.pathname) {
+              case '/api/benchmarks':
+                if(b.id!==r.host) throw fail('Only the host can view benchmark history.',403);
+                if(b.baselineId!=null&&!r.benchmarks.some(run=>run.id===b.baselineId)) throw fail('Baseline is no longer available.');
+                result={runs:benchmarkHistory(r.benchmarks,b.baselineId),limit:HISTORY_LIMIT};break;
               case '/api/state': {
                 if (b.paused !== undefined && typeof b.paused !== 'boolean') throw fail('Invalid pause state');
                 // A delayed heartbeat from an old run must not pause a new run.
@@ -127,6 +133,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
               case '/api/start':
                 if (b.id !== r.host) throw fail('Only the host can start a render.',403);
                 if (r.started !== null && r.finished === null) throw fail('A render is already running.');
+                r.benchmarkConditions=benchmarkConditions(b.benchmark);
                 r.config=Object.freeze({...r.selectedConfig});r.recentCompletions=[];
                 r.run=randomUUID(); r.started=now(); r.finished=null; r.recovered=0;
                 for (const device of r.devices.values()) {device.completed=0; device.computeMs=0; device.uploadBytes=0; device.paused=false;}
@@ -156,7 +163,10 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
                 Object.assign(f,{state:'done',data,ms:b.ms}); d.completed++; d.computeMs+=b.ms; d.uploadBytes+=data.length;
                 activity(r,'completed',d.id,{index:f.index});
                 r.recentCompletions.push({device:d.id,at:now()});
-                if (r.frames.every(f => f.state === 'done')) r.finished=now();
+                if (r.frames.every(f => f.state === 'done')) {
+                  r.finished=now();r.benchmarks.push(recordBenchmark(r));
+                  if(r.benchmarks.length>HISTORY_LIMIT)r.benchmarks.shift();
+                }
                 result={ok:true}; break;
               }
               case '/api/frames':
@@ -172,6 +182,7 @@ export function createCoordinator({disconnectMs=7000, leaseMs=30000, config={}, 
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));
       } else {
         const files={'/network.js':'network.js','/network-state.js':'network-state.js','/network.css':'network.css','/dashboard.js':'dashboard.js','/dashboard.css':'dashboard.css','/themes.css':'themes.css','/':'index.html','/app.js':'app.js','/config.js':'config.js','/style.css':'style.css','/type-motion.css':'type-motion.css','/motion.js':'motion.js','/sky.svg':'sky.svg','/renderer.js':'renderer.js','/worker.js':'worker.js','/gif.js':'gif.js'};
+        files['/benchmarks.js']='benchmarks.js';files['/benchmarks.css']='benchmarks.css';
         const file=files[url.pathname]; if (!file) throw fail('Not found',404);
         const data=await readFile(new URL('./public/'+file,import.meta.url));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);
