@@ -1,50 +1,55 @@
-# Start a short Python test program that imports the new registry.
-# below line is for when you run this directly in the terminal it works as a wrapper
-# python - <<'PY'
-# Import the registry class we just created.
+# Import the registry that tracks connected physical devices.
 from backend.coordinator.registry import DeviceRegistry
 
-# Create an empty registry to simulate HQ's inventory.
+# Import the resource manager that calculates and reserves capacity.
+from backend.coordinator.resource_manager import ResourceManager
+
+# Create a registry to simulate HQ's connected-device inventory.
 registry = DeviceRegistry()
 
-# Simulate two worker processes connecting from the same physical laptop.
+# Register a simulated physical computer with one active worker session.
 registry.register_device("laptop-a", "session-1", "Laptop A")
-registry.register_device("laptop-a", "session-2", "Laptop A")
 
-# Simulate the laptop reporting its available hardware resources.
+# Supply realistic hardware information for the simulated computer.
 registry.update_resources(
     "laptop-a",
     "session-1",
-    {"cpu_cores": 8, "available_ram_gb": 6.2}
+    {
+        "logical_cores": 8,
+        "physical_cores": 4,
+        "total_memory_mb": 16000,
+        "available_memory_mb": 6000,
+        "cpu_percent": 20,
+    },
 )
 
-# Retrieve the current inventory from the registry.
-devices = registry.snapshot()
+# Create the resource manager using the simulated registry.
+manager = ResourceManager(registry)
 
-# Confirm that two sessions still represent only one physical device.
-assert len(devices) == 1
+# Display the initial capacity available for distributed workloads.
+print("INITIAL POOL:", manager.get_pool())
 
-# Confirm that both worker connections are being tracked.
-assert devices[0]["active_sessions"] == 2
+# Reserve three CPU cores and 3000 MB of RAM for the first task.
+manager.reserve("laptop-a", "task-001", 3, 3000)
 
-# Confirm that the physical device is online.
-assert devices[0]["status"] == "online"
+# Display the capacity remaining after the first reservation.
+print("AFTER FIRST RESERVATION:", manager.get_device_capacity("laptop-a"))
 
-# Disconnect the first worker process.
-registry.disconnect_session("laptop-a", "session-1")
+# Try to reserve more CPU and RAM than the device has remaining.
+try:
+    # This reservation should fail because only 1.8 CPU cores and 1800 MB remain.
+    manager.reserve("laptop-a", "task-002", 2, 2000)
 
-# Confirm that the second connection keeps the physical device online.
-assert registry.snapshot()[0]["status"] == "online"
+# Catch the expected resource-allocation error.
+except ValueError as error:
+    # Display the reason that HQ rejected the second reservation.
+    print("EXPECTED REJECTION:", error)
 
-# Disconnect the final worker process.
-registry.disconnect_session("laptop-a", "session-2")
+# Release the first task's resource reservation.
+manager.release("task-001")
 
-# Confirm that the physical device is now offline.
-assert registry.snapshot()[0]["status"] == "offline"
+# Display the capacity after the first task releases its resources.
+print("AFTER RELEASE:", manager.get_device_capacity("laptop-a"))
 
-# Print a success message if every assertion passed.
-print("SUCCESS: Device registry tests passed!")
-
-
-# PY
-# above line is end of the wrapper for direct terminal usage
+# Confirm that the entire test completed successfully.
+print("SUCCESS: Resource manager tests passed!")

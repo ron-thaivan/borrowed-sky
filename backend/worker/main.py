@@ -26,10 +26,13 @@ import psutil
 # Import the protocol functions used to exchange framed messages with the HQ.
 from backend.common.protocol import create_message, receive_message, send_message
 
+from backend.worker.runtime import run_worker_loop
+
 
 # Define how often the worker should send a heartbeat to the HQ.
 HEARTBEAT_INTERVAL = 5
-
+# Refresh worker's hardware usage information every fifteen seconds
+RESOURCE_UPDATE_INTERVAL = 15
 
 # Load the worker's persistent device ID or generate one if this is its first run.
 def load_device_id():
@@ -128,6 +131,8 @@ def connect_worker(hq_host, hq_port):
 
         # Send the registration request to the HQ.
         send_message(connection, registration)
+        # Record when the initial resource report was sent so future updates follow the correct interval
+        last_resource_update = time.monotonic()
 
         # Wait for the HQ to respond with a registration acknowledgement.
         acknowledgement = receive_message(connection)
@@ -160,20 +165,43 @@ def connect_worker(hq_host, hq_port):
         # Keep sending heartbeats until the user interrupts the worker.
         try:
             # Begin the worker's continuous heartbeat loop.
-            while True:
-                # Build a heartbeat message for the current connection session.
-                heartbeat = create_message(
-                    "HEARTBEAT",
-                    device_id,
-                    session_id,
-                    {"status": "alive"},
-                )
+            # while True:
+            #     # Build a heartbeat message for the current connection session.
+            #     heartbeat = create_message(
+            #         "HEARTBEAT",            # identify message as a heartbeat
+            #         device_id,              # identify physical computer sending the heartbeat
+            #         session_id,             # identify current worker connection
+            #         {"status": "alive"},    # report that the worker is operational 
+            #     )
 
-                # Send the heartbeat to the HQ.
-                send_message(connection, heartbeat)
+            #     # Send the heartbeat to the HQ.
+            #     send_message(connection, heartbeat)
 
-                # Wait until the next heartbeat interval.
-                time.sleep(HEARTBEAT_INTERVAL)
+            #     # check whether the resource update interval has elapsed
+            #     if time.monotonic() - last_resource_update >= RESOURCE_UPDATE_INTERVAL:
+            #         # collect fresh cpu, memory, and hardware information 
+            #         updated_resources = collect_resources()
+
+            #         # build a message containing the latest resource information
+            #         resource_update = create_message(
+            #             "RESOURCE_UPDATE",      # Identify the message as a resource update
+            #             device_id,              # identify physical computer reporting resources
+            #             session_id,             # identify current worker connection
+            #             updated_resources,      # contains newly collected hardware information        
+            #         )
+
+            #         # send the updated resource info to hq
+            #         send_message(connection, resource_update)
+
+            #         # record the time of the latest update
+            #         last_resource_update = time.monotonic()
+
+            #         # confirm that the update was sent
+            #         print("[WORKER] Sent updated resource information")
+
+            #     # Wait until the next heartbeat interval.
+            #     time.sleep(HEARTBEAT_INTERVAL)
+            run_worker_loop(connection, device_id, session_id, collect_resources); 
 
         # Handle Ctrl+C as a request to leave the cluster gracefully.
         except KeyboardInterrupt:
@@ -190,5 +218,24 @@ def connect_worker(hq_host, hq_port):
 
             # Display confirmation that the worker is disconnecting.
             print("\n[WORKER] Disconnecting from HQ")
+
+
+# Run the worker startup procedure when this module is executed directly.
+if __name__ == "__main__":
+
+    # Create a command-line argument parser for worker configuration.
+    parser = argparse.ArgumentParser(description="Start a distributed computing worker")
+
+    # Allow the user to specify the HQ coordinator's hostname or IP address.
+    parser.add_argument("--host", default="127.0.0.1", help="HQ coordinator address")
+
+    # Allow the user to specify the TCP port used by the HQ coordinator.
+    parser.add_argument("--port", type=int, default=5050, help="HQ coordinator TCP port")
+
+    # Read the arguments supplied when launching the worker.
+    args = parser.parse_args()
+
+    # Connect this worker to the specified HQ coordinator.
+    connect_worker(args.host, args.port)
 
 
